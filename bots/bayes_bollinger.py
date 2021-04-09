@@ -6,8 +6,107 @@ from numpy import greater, less, sum, nan_to_num
 
 
 def initialize(state):
-    state.number_offset_trades = 0
+    state.number_offset_trades = 0;
     state.bbres_last = [0, 0, 0]
+
+
+@schedule(interval="15m", symbol="ETHUSDT")
+def handler(state, data):
+    symbol = data.symbol
+    bb_period = 20
+    stop_loss = 0.12
+    take_profit = 0.1
+    bb_std_dev_mult = 2
+    bbands = data.bbands(bb_period, bb_std_dev_mult)
+    # lookback period
+    bayes_period = 20
+
+    lower_threshold = 15
+    percent_invest = 1
+    
+    # on erronous data return early (indicators are of NoneType)
+    if bbands is None:
+        return
+
+    bbands_middle = bbands["bbands_middle"].last
+
+    current_price = data.close_last
+    bb_res = bbbayes(
+        data.close.select('close'), bayes_period,
+        bbands.select('bbands_upper'), bbands.select('bbands_lower'),
+        bbands.select('bbands_middle'))
+
+    plot("sigma_up", bb_res[0], symbol)
+    plot("sigma_down", bb_res[1], symbol)
+    plot("prime_prob", bb_res[2], symbol)
+    portfolio = query_portfolio()
+    balance_quoted = portfolio.excess_liquidity_quoted
+    # we invest only 80% of available liquidity
+    buy_value = float(balance_quoted) * percent_invest
+    # buy_value = 100
+
+    sigma_probs_up = bb_res[0]
+    sigma_probs_down = bb_res[1]
+    prob_prime = bb_res[2]
+    sigma_probs_up_last = state.bbres_last[0]
+    sigma_probs_down_last = state.bbres_last[1]
+    prob_prime_last = state.bbres_last[2]
+    sell_using_prob_prime = prob_prime > lower_threshold / 100 and prob_prime_last == 0
+    sell_using_sigma_probs_up = sigma_probs_up < 1 and sigma_probs_up_last == 1
+    buy_using_prob_prime = prob_prime == 0 and prob_prime_last > lower_threshold / 100
+    buy_using_sigma_probs_down = sigma_probs_down < 1 and sigma_probs_down_last == 1
+
+    sell_signal = sell_using_prob_prime or sell_using_sigma_probs_up
+    buy_signal = buy_using_prob_prime or buy_using_sigma_probs_down
+    state.bbres_last = bb_res
+    buy_signal = buy_signal and bbands_middle > current_price
+
+    position = query_open_position_by_symbol(
+        data.symbol, include_dust=False)
+    has_position = position is not None
+
+
+    if buy_signal and not has_position:
+        print("-------")
+        print("Buy Signal: creating market order for {}".format(data.symbol))
+        print("Buy value: ", buy_value, " at current market price: ", data.close_last)
+        
+        buy_order = order_market_value(symbol=data.symbol, value=buy_value)
+        #order_stop_loss(
+        #    symbol, buy_order.quantity,stop_loss,subtract_fees=True)
+        make_double_barrier(
+            symbol, float(buy_order.quantity), take_profit,
+            stop_loss,state)
+
+    elif sell_signal and has_position:
+        print("-------")
+        logmsg = "Sell Signal: closing {} position with exposure {} at current market price {}"
+        print(logmsg.format(data.symbol,float(position.exposure),data.close_last))
+        try:
+            cancel_order(state['order_lower'].id)
+            cancel_order(state['order_upper'].id)
+        except KeyError:
+            pass
+        close_position(data.symbol)
+
+
+    
+    if state.number_offset_trades < portfolio.number_of_offsetting_trades:
+        
+        pnl = query_portfolio_pnl()
+        print("-------")
+        print("Accumulated Pnl of Strategy: {}".format(pnl))
+        
+        offset_trades = portfolio.number_of_offsetting_trades
+        number_winners = portfolio.number_of_winning_trades
+        print("Number of winning trades {}/{}.".format(number_winners,offset_trades))
+        print("Best trade Return : {:.2%}".format(portfolio.best_trade_return))
+        print("Worst trade Return : {:.2%}".format(portfolio.worst_trade_return))
+        print("Average Profit per Winning Trade : {:.2f}".format(portfolio.average_profit_per_winning_trade))
+        print("Average Loss per Losing Trade : {:.2f}".format(portfolio.average_loss_per_losing_trade))
+        # reset number offset trades
+        state.number_offset_trades = portfolio.number_of_offsetting_trades
+
 
 def bbbayes(close, bayes_period, bb_upper, bb_basis, sma_values):
     prob_bb_upper_up_seq = greater(close[-bayes_period:],
@@ -57,9 +156,27 @@ def bbbayes(close, bayes_period, bb_upper, bb_basis, sma_values):
     prob_prime = nan_to_num(
         sigma_probs_down * sigma_probs_up / sigma_probs_down * sigma_probs_up + (
             (1 - sigma_probs_down) * (1 - sigma_probs_up)))
+
+
     return(sigma_probs_up, sigma_probs_down, prob_prime)
 
 def make_double_barrier(symbol,amount,take_profit,stop_loss,state):
+
+    """make_double_barrier
+
+    This function creates two iftouched market orders with the onecancelsother
+    scope. It is used for our tripple-barrier-method
+
+    Args:
+        amount (float): units in base currency to sell
+        take_profit (float): take-profit percent
+        stop_loss (float): stop-loss percent
+        state (state object): the state object of the handler function
+    
+    Returns:
+        TralityOrder:  two order objects
+    
+    """
 
     with OrderScope.one_cancels_others():
         order_upper = order_take_profit(symbol,amount,
@@ -79,98 +196,3 @@ def make_double_barrier(symbol,amount,take_profit,stop_loss,state):
     state["created_time"] = order_upper.created_time
 
     return order_upper, order_lower
-
-
-@schedule(interval="15m", symbol="ETHUSDT")
-def handler(state, data):
-    # Edit setting here:
-    bb_period = 20
-    stop_loss = 0.12
-    take_profit = 0.2
-    bb_std_dev_mult = 2
-    bbands = data.bbands(bb_period, bb_std_dev_mult)
-    # lookback period
-    bayes_period = 20
-    lower_threshold = 15
-    
-    percent_invest = 1.0
-    
-    symbol = data.symbol
-
-    # on erronous data return early (indicators are of NoneType)
-    if bbands is None:
-        return
-
-    bb_res = bbbayes(
-        data.close.select('close'), bayes_period, bbands.select('bbands_upper'),
-        bbands.select('bbands_middle'), bbands.select('bbands_middle'))
-    plot("sigma_up", bb_res[0], symbol)
-    plot("sigma_down", bb_res[1], symbol)
-    plot("prime_prob", bb_res[2], symbol)
-    portfolio = query_portfolio()
-    balance_quoted = portfolio.excess_liquidity_quoted
-    # we invest only 80% of available liquidity
-    buy_value = float(balance_quoted) * percent_invest
-    # buy_value = 500.0
-    sigma_probs_up = bb_res[0]
-    sigma_probs_down = bb_res[1]
-    prob_prime = bb_res[2]
-    sigma_probs_up_last = state.bbres_last[0]
-    sigma_probs_down_last = state.bbres_last[1]
-    prob_prime_last = state.bbres_last[2]
-    long_using_prob_prime = prob_prime > lower_threshold / 100 and prob_prime_last == 0
-    long_using_sigma_probs_up = sigma_probs_up < 1 and sigma_probs_up_last == 1
-    short_using_prob_prime = prob_prime == 0 and prob_prime_last > lower_threshold / 100
-    short_using_sigma_probs_down = sigma_probs_down < 1 and sigma_probs_down_last == 1
-
-    long_signal = long_using_prob_prime or long_using_sigma_probs_up
-    short_signal = short_using_prob_prime or short_using_sigma_probs_down
-    state.bbres_last = bb_res
-
-    position = query_open_position_by_symbol(
-        data.symbol, include_dust=False)
-    has_position = position is not None
-
-
-    if short_signal and not has_position:
-        print("-------")
-        print("Buy Signal: creating market order for {}".format(data.symbol))
-        print("Buy value: ", buy_value, " at current market price: ", data.close_last)
-        
-        buy_order = order_market_value(symbol=data.symbol, value=buy_value)
-        #order_stop_loss(
-        #    symbol, buy_order.quantity,stop_loss,subtract_fees=True)
-        make_double_barrier(
-            symbol, float(buy_order.quantity), take_profit,
-            stop_loss,state)
-
-    elif long_signal and has_position:
-        print("-------")
-        logmsg = "Sell Signal: closing {} position with exposure {} at current market price {}"
-        print(logmsg.format(data.symbol,float(position.exposure),data.close_last))
-        try:
-            cancel_order(state['order_lower'].id)
-            cancel_order(state['order_upper'].id)
-        except KeyError:
-            pass
-        close_position(data.symbol)
-
-
-    
-    if state.number_offset_trades < portfolio.number_of_offsetting_trades:
-        
-        pnl = query_portfolio_pnl()
-        print("-------")
-        print("Accumulated Pnl of Strategy: {}".format(pnl))
-        
-        offset_trades = portfolio.number_of_offsetting_trades
-        number_winners = portfolio.number_of_winning_trades
-        print("Number of winning trades {}/{}.".format(number_winners,offset_trades))
-        print("Best trade Return : {:.2%}".format(portfolio.best_trade_return))
-        print("Worst trade Return : {:.2%}".format(portfolio.worst_trade_return))
-        print("Average Profit per Winning Trade : {:.2f}".format(portfolio.average_profit_per_winning_trade))
-        print("Average Loss per Losing Trade : {:.2f}".format(portfolio.average_loss_per_losing_trade))
-        # reset number offset trades
-        state.number_offset_trades = portfolio.number_of_offsetting_trades
-
-
