@@ -12,9 +12,13 @@ def initialize(state):
     state.signals = {}
     state.fine_tuning = {}
     state.params = {}
+    state.tune_params = {}
     state.params["ZILUSDT"] = [0.12, 0.16, 15]
     state.params["MATICUSDT"] = [0.12, 0.16, 15]
     state.params["VITEUSDT"] = [0.12, 0.16, 15]
+    state.tune_params["VITEUSDT"] = [0.005, 0.01]
+    state.tune_params["MATICUSDT"] = [0.005, 0.02]
+    state.tune_params["ZILUSDT"] = [0.005, 0.02]
 
 #[
 #    "VITEUSDT", "MATICUSDT", "ZILUSDT", "ETHUSDT", "IRISUSDT", "BTCUSDT",
@@ -62,6 +66,11 @@ def handler_main(state, data, amount):
         params = state.params[symbol]
     except KeyError:
         params = [0.12, 0.16, 15]
+    try:
+        tune_params = state.tune_params[symbol]
+    except KeyError:
+        tune_params = [0.005, 0.01]
+    tune_params_up, tune_params_down = tune_params
     try:
         signal = state.signals[symbol]
     except KeyError:
@@ -158,7 +167,7 @@ def handler_main(state, data, amount):
                 print("Update order for {}".format(data.symbol))
                 print("Buy value: ", buy_value, " at current market price: ", data.close_last)
                 update_or_init_buy_fine_tuning(
-                    symbol, buy_value, current_price, 0.005, 0.03, state)
+                    symbol, buy_value, current_price, tune_params_up, tune_params_down, state)
         elif signal == "sell":
             # check if order is filled/failed
             try:
@@ -186,7 +195,7 @@ def handler_main(state, data, amount):
                 # update order
                 print("Update sell position for {}".format(data.symbol))
                 update_or_init_sell_fine_tuning(
-                    symbol, sell_order.quantity, current_price, 0.005, 0.03, state)
+                    symbol, sell_order.quantity, current_price, tune_params_up, tune_params_down, state)
             pass
         return
     if buy_signal and not has_position:
@@ -195,7 +204,7 @@ def handler_main(state, data, amount):
         print("Buy value: ", buy_value, " at current market price: ", data.close_last)
         state.signals[symbol] = "buy"
         update_or_init_buy_fine_tuning(
-                    symbol, buy_value, current_price, 0.005, 0.03, state)        
+                    symbol, buy_value, current_price, tune_params_up, tune_params_down, state)        
         #buy_order = order_market_value(symbol=data.symbol, value=buy_value)
         #make_double_barrier(
         #    symbol, float(buy_order.quantity), take_profit,
@@ -212,7 +221,7 @@ def handler_main(state, data, amount):
         # except KeyError:
         #     pass
         update_or_init_sell_fine_tuning(
-                    symbol, float(position.exposure), current_price, 0.005, 0.03, state)
+                    symbol, float(position.exposure), current_price, tune_params_up, tune_params_down, state)
         #close_position(data.symbol)
 
 
@@ -346,3 +355,4 @@ def update_or_init_buy_fine_tuning(symbol, value, current_price, up_limit, down_
     tune_order = order_trailing_iftouched_value(symbol, value=value, 
         trailing_percent=trailing_percent, stop_price=stop_price)
     state.fine_tuning[symbol] = tune_order
+
