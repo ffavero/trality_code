@@ -15,18 +15,20 @@ def initialize(state):
     state.tune_params = {}
     state.params["ZILUSDT"] = [0.12, 0.12, 15, 20]
     state.params["MATICUSDT"] = [0.12, 0.12, 15, 20]
+    state.params["RUNEUSDT"] = [0.12, 0.12, 15, 20]
+    state.params["EGLDUSDT"] = [0.12, 0.12, 15, 20]
     state.params["VITEUSDT"] = [0.12, 0.12, 15, 20]
     state.tune_params["VITEUSDT"] = [0.005, 0.02]
     state.tune_params["MATICUSDT"] = [0.005, 0.02]
     state.tune_params["ZILUSDT"] = [0.005, 0.02]
-    state.tune_params["RUNEUSDT"] = [0.004, 0.008]
+    state.tune_params["RUNEUSDT"] = [0.005, 0.008]
     state.tune_params["EGLDUSDT"] = [0.005, 0.02]
 
 #[
 #    "VITEUSDT", "MATICUSDT", "ZILUSDT", "ETHUSDT", "IRISUSDT", "BTCUSDT",
 #    "TRXUSDT", "LTCUSDT", "DASHUSDT", "XTZUSDT", "XRPUSDT"])
 @schedule(interval="5m", symbol=[
-    "VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT"])
+    "VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "EGLDUSDT"])
 def handler(state, data):
     portfolio = query_portfolio()
     n_coins = len(data.keys())
@@ -131,9 +133,11 @@ def handler_main(state, data, amount):
     sigma_probs_down_last = state.bbres_last[symbol][1]
     prob_prime_last = state.bbres_last[symbol][2]
     sell_using_prob_prime = prob_prime > lower_threshold / 100 and prob_prime_last == 0
-    sell_using_sigma_probs_up = sigma_probs_up < 1 and sigma_probs_up_last == 1
+    sell_using_sigma_probs_up = (sigma_probs_up < 1 and sigma_probs_up_last == 1) or (
+        sigma_probs_down_last == 0 and sigma_probs_down > 0)
     buy_using_prob_prime = prob_prime == 0 and prob_prime_last > lower_threshold / 100
-    buy_using_sigma_probs_down = sigma_probs_down < 1 and sigma_probs_down_last == 1
+    buy_using_sigma_probs_down = (sigma_probs_down < 1 and sigma_probs_down_last == 1) or (
+        sigma_probs_up_last == 0 and sigma_probs_up > 0)
 
     sell_signal = sell_using_prob_prime or sell_using_sigma_probs_up
     buy_signal = buy_using_prob_prime or buy_using_sigma_probs_down
@@ -209,9 +213,18 @@ def handler_main(state, data, amount):
                 #     pass
             else:
                 if not has_position:
-                    cancel_order(state.orders[symbol]['order_lower'].id)
-                    cancel_order(state.orders[symbol]['order_upper'].id)
-                    cancel_order(state.fine_tuning[symbol].id)
+                    try:
+                        cancel_order(state.orders[symbol]['order_lower'].id)
+                    except Exception:
+                        pass
+                    try:
+                        cancel_order(state.orders[symbol]['order_upper'].id)
+                    except Exception:
+                        pass
+                    try:
+                        cancel_order(state.fine_tuning[symbol].id)
+                    except Exception:
+                        pass
                     state.signals[symbol] = None
                     return
                 # update order
