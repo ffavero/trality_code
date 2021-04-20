@@ -22,7 +22,6 @@ def handler(state, data):
     '''
     atr_periods = 10
     mav_len = 10
-    v_len = 9
     atr_multiplier = 3.0
     change_atr = True
     normalize_atr = True
@@ -37,34 +36,7 @@ def handler(state, data):
     # hl2 is maybe different, try with data.avgprice if it's an
     # equivalent of tradingview hl2
     src = data.avgprice().select('avgprice')
-    vud1 = src[-v_len:] - src[-(v_len + 1):-1]
-    vdd1 = src[-(v_len + 1):-1] - src[-v_len:]
-    for i in range(v_len):
-        if vud1[i] < 0:
-            vud1[i] = 0
-        if vdd1[i] < 0:
-            vdd1[i] = 0
-    vUD = sum(vud1)
-    vDD = sum(vdd1)
 
-    vCMO = nan_to_num((vUD-vDD)/(vUD+vDD))
-    VAR = nan_to_num(
-        valpha * abs(vCMO) * src) + ( 1 - valpha * abs(vCMO))
-    VAR = VAR * nan_to_num(VAR[-2])
-    wwalpha = 1 / mav_len
-    WWMA = wwalpha * src + (1 - wwalpha)
-    WWMA = WWMA * nan_to_num(WWMA[-2])
-
-    if mav_len%2 == 0:
-        zxLag = mav_len / 2
-    else:
-        zxLag = (mav_len - 1) / 2
-    zxEMAData = (src + (src - src[int(zxLag)]))
-    ZLEMA = ema(zxEMAData, mav_len)
-    lrc = linreg(src, mav_len, 0)
-    lrc1 = linreg(src,mav_len,1)
-    lrs = (lrc-lrc1)
-    TSF = linreg(src, mav_len, 0) + lrs
     # Just use ema, other mav can be implemented as needed
     # the original script had a param to select which mav to use....
     MAvg = data.ema(mav_len)
