@@ -1,3 +1,11 @@
+"""
+
+Translated from here: https://www.tradingview.com/script/sU9molfV/
+
+untested and it needs fixes
+
+"""
+
 from numpy import sum, nan_to_num
 from trality.indicator import linreg, ema
 
