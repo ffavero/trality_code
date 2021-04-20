@@ -3,6 +3,8 @@ from trality.indicator import linreg, ema
 
 def initialize(state):
     state.number_offset_trades = 0;
+    state.last_dir = 1
+    state.PMax_last = None
 
 
 @schedule(interval="1h", symbol="BTCUSDT")
@@ -61,15 +63,76 @@ def handler(state, data):
     # on erronous data return early (indicators are of NoneType)
     if atr is None or MAvg is None:
         return
+    MAvg = MAvg.select("ema")
+    try:
+        atr = atr.select("atr")
+    except RuntimeError:
+        atr = atr.select("sma")
+
 
     if normalize_atr:
-        longStop = MAvg - (atr_multiplier * atr / data.close)
+        longStop = (MAvg[
+            -atr_periods:] - (atr_multiplier * atr[
+                -atr_periods:]) / data.select("close")[-atr_periods:])
     else:
-        longStop = MAvg - (atr_multiplier * atr)
+        longStop = MAvg[
+            -atr_periods:] - (atr_multiplier * atr[-atr_periods:])
 
+    longStopPrev = nan_to_num(longStop[-2], longStop[-1])
 
-    current_price = data.close_last
+    if MAvg[-1] > longStopPrev:
+        longStop_last = max(longStop[-1], longStopPrev)
+    else:
+        longStop_last = longStop[-1]
+
+    if normalize_atr:
+        shortStop = (MAvg[-atr_periods:] + (atr_multiplier * atr[
+                -atr_periods:]) / data.select("close")[-atr_periods:])
+    else:
+        shortStop = MAvg[
+            -atr_periods:] + (atr_multiplier * atr[-atr_periods:])
+    shortStopPrev = nan_to_num(shortStop[-2], shortStop[-1])
+
+    if MAvg[-1] < shortStopPrev:
+        shortStop_last = min(shortStop[-1], shortStopPrev)
+    else:
+        shortStop_last = shortStop[-1]
+
+    dir = 1
+    last_dir = nan_to_num(state.last_dir, 1)
+    if last_dir == -1 and MAvg[-1] > shortStopPrev:
+        dir = 1
+    elif last_dir == 1 and MAvg[-1] < longStopPrev:
+        dir = -1
+    state.last_dir = dir
     
+    if dir == 1:
+        PMax = longStop_last
+    else:
+        PMax = shortStop_last
+
+    with PlotScope.root(data.symbol):
+        plot("longStop", longStop_last)
+        plot("shortStop", shortStop_last)
+        plot("PMax", PMax)
+    with PlotScope.group("dir", data.symbol):
+        plot("dir", dir)
+        plot("last_dir", last_dir)
+    PMax_last = state.PMax_last
+    state.PMax_last = PMax
+
+    if PMax_last is not None:
+        buySignalk = cross_over(MAvg[-2:], [PMax_last, PMax])
+        buySignalc = cross_over(src[-2:], [PMax_last, PMax])
+
+        sellSignallk = cross_under(MAvg[-2:], [PMax_last, PMax])
+        sellSignallc = cross_under(src[-2:], [PMax_last, PMax])
+
+        buy = buySignalk or buySignalc
+        sell = sellSignallk or sellSignallc
+    else:
+        return
+
     '''
     2) Fetch portfolio
         > check liquidity (in quoted currency)
@@ -97,14 +160,14 @@ def handler(state, data):
         > print position information
         
     '''
-    if True and not has_position:
+    if buy and not has_position:
         print("-------")
         print("Buy Signal: creating market order for {}".format(data.symbol))
         print("Buy value: ", buy_value, " at current market price: ", data.close_last)
         
         order_market_value(symbol=data.symbol, value=buy_value)
 
-    elif True and has_position:
+    elif sell and has_position:
         print("-------")
         logmsg = "Sell Signal: closing {} position with exposure {} at current market price {}"
         print(logmsg.format(data.symbol,float(position.exposure),data.close_last))
@@ -132,3 +195,8 @@ def handler(state, data):
         # reset number offset trades
         state.number_offset_trades = portfolio.number_of_offsetting_trades
 
+def cross_over(x, y):
+    x[0] < y[0] and x[1] > y[1]
+
+def cross_under(x, y):
+    x[0] > y[0] and x[1] < y[1]
