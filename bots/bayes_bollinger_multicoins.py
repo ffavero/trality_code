@@ -1,53 +1,57 @@
 """
-Ported from https://bango29.com/bayesian-probability-as-an-oscillator/
+Refactory of the original bayiesian bollinger bot
+ - multiple coins trading
+ - dynamic trailing market orders
+ - tunable parameters for every coins
+ - TODO: Portfolio weighted splits (eg you want to trade
+   50% BTC and the remaining value to split it with other
+   3 altcoins)
 """
-
 from numpy import greater, less, sum, nan_to_num
 
+
+
+### Settings in state
+
 def initialize(state):
-    state.number_offset_trades = 0;
-    state.bbres_last = {}
-    state.orders = {}
+    state.number_offset_trades = 0
+    state.percent_invest = 0.98
+    state.bbres_prev = {}
+    state.limit_orders = {}
     state.signals = {}
     state.fine_tuning = {}
     state.params = {}
-    state.tune_params = {}
-    state.params["ZILUSDT"] = [0.12, 0.16, 15, 20]
-    state.params["MATICUSDT"] = [0.12, 0.16, 15, 20]
-    state.params["RUNEUSDT"] = [0.12, 0.16, 15, 20]
-    state.params["EGLDUSDT"] = [0.12, 0.16, 15, 20]
-    state.params["VITEUSDT"] = [0.12, 0.16, 15, 20]
-    state.tune_params["VITEUSDT"] = [0.0015, 0.003]
-    state.tune_params["MATICUSDT"] = [0.0015, 0.003]
-    state.tune_params["ZILUSDT"] = [0.0015, 0.003]
-    state.tune_params["RUNEUSDT"] = [0.0015, 0.003]
-    state.tune_params["EGLDUSDT"] = [0.0015, 0.003]
+    state.params["DEFAULT"] = {
+        "stop_loss": 0.12,
+        "take_profit": 0.16,
+        "lower_threshold": 15,
+        "bayes_period": 20}
 
-#[
-#    "VITEUSDT", "MATICUSDT", "ZILUSDT", "ETHUSDT", "IRISUSDT", "BTCUSDT",
-#    "TRXUSDT", "LTCUSDT", "DASHUSDT", "XTZUSDT", "XRPUSDT"])
+### No fiddling from here below, all the settings are
+### exposed in the state
 
+### Main handler
 @schedule(interval="15m", symbol=[
-    "VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "EGLDUSDT"])
-
+    "VITEUSDT", "MATICUSDT", "ZILUSDT", "EGLDUSDT", "RUNEUSDT"])
 def handler(state, data):
     portfolio = query_portfolio()
-    n_coins = len(data.keys())
     balance_quoted = portfolio.excess_liquidity_quoted
-    # we invest only 80% of available liquidity
-    #buy_value = float(balance_quoted) * percent_invest
+    buy_value = float(balance_quoted) * state.percent_invest
     n_pos = 0
-    for symbol_x in data.keys():
-        position = query_open_position_by_symbol(
-            symbol_x, include_dust=False)
-        if position is not None:
-           n_pos += 1
-    amount = 0
-    if n_pos < n_coins:
-        amount = float(balance_quoted) / (n_coins - n_pos)
-    for symbol_x in data.keys():
-        handler_main(state, data[symbol_x], amount)
-
+    try:
+        n_coins = len(data.keys())
+        for this_symbol in data.keys():
+            position = query_open_position_by_symbol(
+                this_symbol, include_dust=False)
+            if position is not None:
+                n_pos += 1
+        amount = 0
+        if n_pos < n_coins:
+            amount = buy_value / (n_coins - n_pos)
+        for this_symbol in data.keys():
+            handler_main(state, data[this_symbol], amount)
+    except TypeError:
+        handler_main(state, data, buy_value)
     if state.number_offset_trades < portfolio.number_of_offsetting_trades:
         
         pnl = query_portfolio_pnl()
@@ -65,46 +69,33 @@ def handler(state, data):
         state.number_offset_trades = portfolio.number_of_offsetting_trades
 
 
+### generic handler function with main strategy
+
 def handler_main(state, data, amount):
     symbol = data.symbol
-    bb_period = 20
     try:
         params = state.params[symbol]
     except KeyError:
-        params = [0.12, 0.12, 15, 20]
-    try:
-        tune_params = state.tune_params[symbol]
-    except KeyError:
-        tune_params = [0.005, 0.01]
-    #trail_percent, trail_limit = tune_params
-    trail_percent, trail_limit = dynamic_trailing_limits(data.open_last, data.close_last)
+        params = state.params["DEFAULT"]
 
+    trail_percent, trail_limit = dynamic_trailing_limits(
+        data.open_last, data.close_last)
     try:
         signal = state.signals[symbol]
     except KeyError:
         state.signals[symbol] = None
         signal = state.signals[symbol]
-    # stop_loss = 0.12
-    # take_profit = 0.16
-    # lower_threshold = 15
 
-    stop_loss = params[0]
-    take_profit = params[1]
-    lower_threshold = params[2]
-    bayes_period =  params[3]
+    stop_loss = params["stop_loss"]
+    take_profit = params["take_profit"]
+    lower_threshold = params["lower_threshold"]
+    bayes_period =  params["bayes_period"]
 
+    bb_period = 20
     bb_std_dev_mult = 2
     bbands = data.bbands(bb_period, bb_std_dev_mult)
-    # lookback period
-
-    percent_invest = 0.97
-
-
-    
-    # on erronous data return early (indicators are of NoneType)
     if bbands is None:
         return
-
     bbands_middle = bbands["bbands_middle"].last
 
     current_price = data.close_last
@@ -114,67 +105,49 @@ def handler_main(state, data, amount):
         bbands.select('bbands_middle'))
     last_two_close = data.close.select('close')[-2:]
 
-
     with PlotScope.group("bayesian_bollinger", symbol):
         plot("sigma_up", bb_res[0])
         plot("sigma_down", bb_res[1])
         plot("prime_prob", bb_res[2])
 
-    #portfolio = query_portfolio()
-    #balance_quoted = portfolio.excess_liquidity_quoted
-    # we invest only 80% of available liquidity
-    #buy_value = float(balance_quoted) * percent_invest
-    buy_value = amount * percent_invest
-    # buy_value = 100
+    buy_value = amount
 
     sigma_probs_up = bb_res[0]
     sigma_probs_down = bb_res[1]
     prob_prime = bb_res[2]
     try:
-        sigma_probs_up_last = state.bbres_last[symbol][0]
+        bbres_prev = state.bbres_prev[symbol]
         trading_live = True
     except KeyError:
-        state.bbres_last[symbol] = [0, 0, 0]
-        sigma_probs_up_last = 0
+        state.bbres_prev[symbol] = [0, 0, 0]
+        bbres_prev = state.bbres_prev[symbol]
         trading_live = False
 
 
+    sigma_probs_up_prev = bbres_prev[0]
+    sigma_probs_down_prev = bbres_prev[1]
+    prob_prime_prev = bbres_prev[2]
 
-    sigma_probs_down_last = state.bbres_last[symbol][1]
-    prob_prime_last = state.bbres_last[symbol][2]
-    sell_using_prob_prime = prob_prime > lower_threshold / 100 and prob_prime_last == 0
-    sell_using_sigma_probs_up = (sigma_probs_up < 1 and sigma_probs_up_last == 1) or (
-        sigma_probs_down_last == 0 and sigma_probs_down > 0)
-    buy_using_prob_prime = prob_prime == 0 and prob_prime_last > lower_threshold / 100
-    buy_using_sigma_probs_down = (sigma_probs_down < 1 and sigma_probs_down_last == 1) or (
-        sigma_probs_up_last == 0 and sigma_probs_up > 0)
+    buy_signal, sell_signal = compute_signal(
+        sigma_probs_up, sigma_probs_down, prob_prime, sigma_probs_up_prev,
+        sigma_probs_down_prev, prob_prime_prev, bbands_middle, current_price, lower_threshold)
 
-    sell_signal = sell_using_prob_prime or sell_using_sigma_probs_up
-    buy_signal = buy_using_prob_prime or buy_using_sigma_probs_down
-    buy_signal = buy_signal and bbands_middle > current_price
-
-    state.bbres_last[symbol] = bb_res
+    state.bbres_prev[symbol] = bb_res
 
     if not trading_live:
         print("Skip first candle to gather signals")
         return
+
     position = query_open_position_by_symbol(
         data.symbol, include_dust=False)
     has_position = position is not None
 
     if signal is not None:
         if signal == "buy":
-            # if current_price > bbands_middle:
-            #     close_position(symbol)
-            #     cancel_order(state.fine_tuning[symbol].id)
-            #     state.signals[symbol] = None
-            #     return
-
-            # check if order is filled/failed
             try:
                 buy_order = state.fine_tuning[symbol]
             except KeyError:
-                raise(Exception("Can't find the fine tuning order"))
+                raise(Exception("I can't find the fine tuning order"))
             buy_order.refresh()
             order_status = [buy_order.is_filled(
                 ), buy_order.is_error(
@@ -185,19 +158,20 @@ def handler_main(state, data, amount):
                 # if filled reset signal, state and set stop/tp limits
                 # If failed open market position
                     buy_order = order_market_value(symbol=symbol, value=buy_value)
+                cancel_state_tuning_orders(state, symbol)
                 state.signals[symbol] = None
                 state.fine_tuning[symbol] = None
                 make_double_barrier(symbol, float(buy_order.quantity), take_profit,
                     stop_loss, state)
             else:
                 if has_position:
-                    cancel_order(state.fine_tuning[symbol].id)
+                    cancel_state_tuning_orders(state, symbol)
                     state.signals[symbol] = None
                     return
                 # update order
                 print("-------")
                 print("Update order for {}".format(data.symbol))
-                print("Buy value: ", buy_value, " at current market price: ", data.close_last)
+                print("Buy value: ", buy_value, " at current market price: ", current_price)
                 update_or_init_buy_fine_tuning(
                     symbol, buy_value, last_two_close, trail_percent, trail_limit, state)
 
@@ -207,7 +181,7 @@ def handler_main(state, data, amount):
             try:
                 sell_order = state.fine_tuning[symbol]
             except KeyError:
-                raise("Can't find the fine tuning order")
+                raise("I can't find the fine tuning order")
             sell_order.refresh()
             order_status = [sell_order.is_filled(
                 ), sell_order.is_error(
@@ -218,29 +192,13 @@ def handler_main(state, data, amount):
                 # if filled reset signal, state and set stop/tp limits
                 # If failed open market position
                     close_position(symbol)
+                cancel_state_tuning_orders(state, symbol)
                 state.signals[symbol] = None
                 state.fine_tuning[symbol] = None
-                # try:
-                #     cancel_order(state.orders[symbol]['order_lower'].id)
-                #     cancel_order(state.orders[symbol]['order_upper'].id)
-                # except Exception:
-                #     pass
             else:
                 if not has_position:
-                    try:
-                        cancel_order(state.orders[symbol]['order_lower'].id)
-                        state.orders[symbol]['order_lower'] = None
-                    except Exception:
-                        pass
-                    try:
-                        cancel_order(state.orders[symbol]['order_upper'].id)
-                        state.orders[symbol]['order_upper'] = None
-                    except Exception:
-                        pass
-                    try:
-                        cancel_order(state.fine_tuning[symbol].id)
-                    except Exception:
-                        pass
+                    cancel_state_limit_orders(state, symbol)
+                    cancel_state_tuning_orders(state, symbol)
                     state.signals[symbol] = None
                     return
                 # update order
@@ -251,7 +209,7 @@ def handler_main(state, data, amount):
         return
     else:
         try:
-            stop_order = state.orders[symbol]['order_lower']
+            stop_order = state.limit_orders[symbol]['order_lower']
         except KeyError:
             stop_order = None
         if has_position and stop_order is None:
@@ -262,33 +220,136 @@ def handler_main(state, data, amount):
     if buy_signal and not has_position:
         print("-------")
         print("Buy Signal: creating market order for {}".format(data.symbol))
-        print("Buy value: ", buy_value, " at current market price: ", data.close_last)
+        print("Buy value: ", buy_value, " at current market price: ", current_price)
         state.signals[symbol] = "buy"
         update_or_init_buy_fine_tuning(
-                    symbol, buy_value, last_two_close, trail_percent, trail_limit, state)        
-        #buy_order = order_market_value(symbol=data.symbol, value=buy_value)
-        #make_double_barrier(
-        #    symbol, float(buy_order.quantity), take_profit,
-        #    stop_loss,state)
+                    symbol, buy_value, last_two_close, trail_percent, trail_limit, state)
 
     elif sell_signal and has_position:
         state.signals[symbol] = "sell"
         print("-------")
         logmsg = "Sell Signal: closing {} position with exposure {} at current market price {}"
-        print(logmsg.format(data.symbol,float(position.exposure),data.close_last))
-        try:
-            cancel_order(state.orders[symbol]['order_lower'].id)
-            state.orders[symbol]['order_lower'] = None
-        except Exception:
-            pass
-        try:
-            cancel_order(state.orders[symbol]['order_upper'].id)
-            state.orders[symbol]['order_upper'] = None
-        except Exception:
-            pass
+        print(logmsg.format(data.symbol,float(position.exposure),current_price))
+        cancel_state_limit_orders(state, symbol)
         update_or_init_sell_fine_tuning(
-                    symbol, float(position.exposure), last_two_close, trail_percent, trail_limit, state)
-        #close_position(data.symbol)
+            symbol, float(position.exposure), last_two_close, trail_percent,
+            trail_limit, state)
+
+
+
+### methods and helpers
+
+def cancel_state_limit_orders(state, symbol):
+    try:
+        cancel_order(state.limit_orders[symbol]['order_lower'].id)
+        state.limit_orders[symbol]['order_lower'] = None
+    except Exception:
+        pass
+    try:
+        cancel_order(state.limit_orders[symbol]['order_upper'].id)
+        state.limit_orders[symbol]['order_upper'] = None
+    except Exception:
+        pass
+
+def cancel_state_tuning_orders(state, symbol):
+    try:
+        cancel_order(state.fine_tuning[symbol].id)
+    except Exception:
+        pass
+
+
+def make_double_barrier(symbol,amount,take_profit,stop_loss,state):
+
+    """make_double_barrier
+
+    This function creates two iftouched market orders with the onecancelsother
+    scope. It is used for our tripple-barrier-method
+
+    Args:
+        amount (float): units in base currency to sell
+        take_profit (float): take-profit percent
+        stop_loss (float): stop-loss percent
+        state (state object): the state object of the handler function
+    
+    Returns:
+        TralityOrder:  two order objects
+    
+    """
+
+    with OrderScope.one_cancels_others():
+        order_upper = order_take_profit(symbol,amount,
+        								take_profit,
+                                        subtract_fees=True)
+        order_lower = order_stop_loss(symbol,amount,
+        							  stop_loss,
+                                      subtract_fees=True)
+        
+    if order_upper.status != OrderStatus.Pending:
+        errmsg = "make_double barrier failed with: {}"
+        raise ValueError(errmsg.format(order_upper.error))
+    
+    # saving orders
+
+
+    try:
+        state.limit_orders[symbol]
+        state.limit_orders[symbol]["order_upper"] = order_upper
+        state.limit_orders[symbol]["order_lower"] = order_lower
+        state.limit_orders[symbol]["created_time"] = order_upper.created_time
+    except Exception:
+        state.limit_orders[symbol] = {}
+        state.limit_orders[symbol]["order_upper"] = order_upper
+        state.limit_orders[symbol]["order_lower"] = order_lower
+        state.limit_orders[symbol]["created_time"] = order_upper.created_time
+
+
+    return order_upper, order_lower
+
+
+def update_or_init_sell_fine_tuning(symbol, amount, current_prices, trailing_percent, stop_limit, state):
+    try:
+        old_order = state.fine_tuning[symbol]
+    except KeyError:
+        old_order = None
+    if current_prices[0] > current_prices[1] and old_order is not None:
+        return
+    current_price = current_prices[1]
+
+    if old_order is not None:
+        amount = old_order.quantity
+        cancel_state_tuning_orders(state, symbol)
+    stop_price = current_price * (1 + stop_limit)
+
+    tune_order = order_trailing_iftouched_amount(symbol, amount=-1 * float(amount), 
+        trailing_percent=trailing_percent, stop_price=stop_price)
+    state.fine_tuning[symbol] = tune_order
+
+
+def update_or_init_buy_fine_tuning(symbol, value, current_prices, trailing_percent, stop_limit, state):
+    try:
+        old_order = state.fine_tuning[symbol]
+    except KeyError:
+        old_order = None
+    if current_prices[0] < current_prices[1] and old_order is not None:
+        return
+
+    current_price = current_prices[1]
+
+    if old_order is not None:
+        cancel_state_tuning_orders(state, symbol)
+    stop_price = current_price * (1 - stop_limit)
+
+    tune_order = order_trailing_iftouched_value(symbol, value=value, 
+        trailing_percent=trailing_percent, stop_price=stop_price)
+    state.fine_tuning[symbol] = tune_order
+
+
+def dynamic_trailing_limits(open_price, close_price, limit_rate=0.75, trailing_rate=0.75):
+    change_percent = abs((
+        close_price - open_price) / open_price)
+    stop_limit_percent = change_percent * limit_rate
+    trailing_percent = change_percent * trailing_rate
+    return (trailing_percent, stop_limit_percent)
 
 
 def bbbayes(close, bayes_period, bb_upper, bb_basis, sma_values):
@@ -339,124 +400,44 @@ def bbbayes(close, bayes_period, bb_upper, bb_basis, sma_values):
     prob_prime = nan_to_num(
         sigma_probs_down * sigma_probs_up / sigma_probs_down * sigma_probs_up + (
             (1 - sigma_probs_down) * (1 - sigma_probs_up)))
-
-
     return(sigma_probs_up, sigma_probs_down, prob_prime)
 
-def make_double_barrier(symbol,amount,take_profit,stop_loss,state):
 
-    """make_double_barrier
-
-    This function creates two iftouched market orders with the onecancelsother
-    scope. It is used for our tripple-barrier-method
-
-    Args:
-        amount (float): units in base currency to sell
-        take_profit (float): take-profit percent
-        stop_loss (float): stop-loss percent
-        state (state object): the state object of the handler function
-    
-    Returns:
-        TralityOrder:  two order objects
-    
-    """
-
-    with OrderScope.one_cancels_others():
-        order_upper = order_take_profit(symbol,amount,
-        								take_profit,
-                                        subtract_fees=True)
-        order_lower = order_stop_loss(symbol,amount,
-        							  stop_loss,
-                                      subtract_fees=True)
-        
-    if order_upper.status != OrderStatus.Pending:
-        errmsg = "make_double barrier failed with: {}"
-        raise ValueError(errmsg.format(order_upper.error))
-    
-    # saving orders
+def compute_signal(
+  sigma_probs_up, sigma_probs_down, prob_prime,sigma_probs_up_prev,
+  sigma_probs_down_prev, prob_prime_prev,bbands_middle, current_price, lower_threshold=15):
+    sell_using_prob_prime = prob_prime > lower_threshold / 100 and prob_prime_prev == 0
+    sell_using_sigma_probs_up = (sigma_probs_up < 1 and sigma_probs_up_prev == 1) or (
+        sigma_probs_down_prev == 0 and sigma_probs_down > 0)
+    buy_using_prob_prime = prob_prime == 0 and prob_prime_prev > lower_threshold / 100
+    buy_using_sigma_probs_down = (sigma_probs_down < 1 and sigma_probs_down_prev == 1) or (
+        sigma_probs_up_prev == 0 and sigma_probs_up > 0)
+    buy_using_sigma_probs_cross = cross_over(
+        [prob_prime_prev, prob_prime],
+        [sigma_probs_down_prev, sigma_probs_down])
+    sell_using_sigma_probs_cross = cross_under(
+        [prob_prime_prev, prob_prime],
+        [sigma_probs_down_prev, sigma_probs_down])
+    sell_signal = sell_using_prob_prime or sell_using_sigma_probs_up or sell_using_sigma_probs_cross
+    buy_signal = buy_using_prob_prime or buy_using_sigma_probs_down or buy_using_sigma_probs_cross
+    buy_signal = buy_signal #and bbands_middle > current_price
+    return (buy_signal, sell_signal)
 
 
-    try:
-        state.orders[symbol]
-        state.orders[symbol]["order_upper"] = order_upper
-        state.orders[symbol]["order_lower"] = order_lower
-        state.orders[symbol]["created_time"] = order_upper.created_time
-    except Exception:
-        state.orders[symbol] = {}
-        state.orders[symbol]["order_upper"] = order_upper
-        state.orders[symbol]["order_lower"] = order_lower
-        state.orders[symbol]["created_time"] = order_upper.created_time
+def cross_over(x, y):
+    if y[1] < x[1]:
+        return False
+    else:
+        if x[0] > y[0]:
+            return True
+        else:
+            return False
 
-
-    return order_upper, order_lower
-
-
-def update_or_init_sell_fine_tuning(symbol, amount, current_prices, small_limit, large_limit, state):
-    try:
-        old_order = state.fine_tuning[symbol]
-    except KeyError:
-        old_order = None
-    if current_prices[0] > current_prices[1] and old_order is not None:
-        # cancel_order(old_order.id)
-        # state.signals[symbol] = None
-        # state.fine_tuning[symbol] = None
-        # close_position(symbol)
-        return
-    current_price = current_prices[1]
-
-    if old_order is not None:
-        amount = old_order.quantity
-        try:
-            cancel_order(old_order.id)
-        except Exception:
-            pass
-    stop_price = current_price * (1 + large_limit)
-    trailing_percent = small_limit
-
-    tune_order = order_trailing_iftouched_amount(symbol, amount=-1 * float(amount), 
-        trailing_percent=trailing_percent, stop_price=stop_price)
-    state.fine_tuning[symbol] = tune_order
-
-
-def update_or_init_buy_fine_tuning(symbol, value, current_prices, small_limit, large_limit, state):
-    try:
-        old_order = state.fine_tuning[symbol]
-    except KeyError:
-        old_order = None
-    if current_prices[0] < current_prices[1] and old_order is not None:
-        # buy_order =  order_market_value(symbol=symbol, value=value)
-        # cancel_order(old_order.id)
-        # state.signals[symbol] = None
-        # state.fine_tuning[symbol] = None
-        # make_double_barrier(symbol, float(buy_order.quantity), 0.16,
-        #     0.12, state)
-        return
-
-    current_price = current_prices[1]
-
-    if old_order is not None:
-        try:
-            cancel_order(old_order.id)
-        except Exception:
-            pass
-    stop_price = current_price * (1 - large_limit)
-    trailing_percent = small_limit
-
-    tune_order = order_trailing_iftouched_value(symbol, value=value, 
-        trailing_percent=trailing_percent, stop_price=stop_price)
-    state.fine_tuning[symbol] = tune_order
-
-
-# def dynamic_trailing_limits(open_price, close_price, limit_rate=1.05, trailing_rate=0.5):
-#     change_percent = abs((
-#         close_price - open_price) / open_price)
-#     stop_limit_percent = change_percent * limit_rate
-#     trailing_percent = change_percent * trailing_rate
-#     return (trailing_percent, stop_limit_percent)
-
-def dynamic_trailing_limits(open_price, close_price, limit_rate=0.75, trailing_rate=0.75):
-    change_percent = abs((
-        close_price - open_price) / open_price)
-    stop_limit_percent = change_percent * limit_rate
-    trailing_percent = change_percent * trailing_rate
-    return (trailing_percent, stop_limit_percent)
+def cross_under(x, y):
+    if y[1] > x[1]:
+        return False
+    else:
+        if x[0] < y[0]:
+            return True
+        else:
+            return False
