@@ -184,9 +184,11 @@ def handler_main(state, data, amount):
 
     if VERBOSE:
         print(
-            "sigma_probs_up: %(sigma_probs_up)f, "
-            "sigma_probs_down: %(sigma_probs_up)f, "
-            "prob_prime: %(prob_prime)f" % {
+            "%(symbol)s:\n"
+            "    sigma_probs_up: %(sigma_probs_up)f\n"
+            "    sigma_probs_down: %(sigma_probs_up)f\n"
+            "    prob_prime: %(prob_prime)f\n" % {
+                "symbol": symbol,
                 "sigma_probs_up": sigma_probs_up,
                 "sigma_probs_down": sigma_probs_up,
                 "prob_prime": prob_prime})
