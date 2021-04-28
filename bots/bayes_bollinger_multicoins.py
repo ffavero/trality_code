@@ -1,13 +1,46 @@
+from numpy import greater, less, sum, nan_to_num
+
+
+TITLE = "Multicoin Bollinger Bands Bayesian Oscillator"
+VERSION = "21.1"
+ALIAS = "Mjollnir"
+AUTHOR = "Francesco @79bass in 2021-04-28"
+DONATE = ("TIP JAR WALLET:  \n" +  
+           "ERC20:  0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c")
+
+
 """
+
+Changelog:
 Refactory of the original bayiesian bollinger bot
  - multiple coins trading
  - dynamic trailing market orders
  - tunable parameters for every coins
  - TODO: Portfolio weighted splits (eg you want to trade
    50% BTC and the remaining value to split it with other
-   3 altcoins)
+   altcoins)
+
+DOCS:
+
+   The bot comes with default paramaters, but it is possible to change per-coin setting by
+   adding a key to the `state.params` dictionary, referencing a specific symbol.
+   The per-coin parameters can be partials, the missing options will be taken by the DEFAULT
+   settings.
+
+   A quick description of the available parameters is the following
+   options:
+
+        - stop_loss: The percentage [0-1] of maximum loss before dropping a trade. Default 0.12 (12%)
+        - take_profit: The percentage [0-1] of maximum gain before taking profit. Default 0.16 (16%)
+        - lower_threshold: The limit in the derivative probability to consider a trade with 
+                           the prime_prob signal (other signal will not be affected by this). Defaiult 15
+        - bayes_period: The numbers of previous candles to compute the probabilities. Default 20
+        - order_type: The type of order to use from trality, available options are "trailing" or
+                      "if_touched". Default "if_touched"
+        - limit_rate_candle: The percentage on the last candle to set the limit above (selling) or
+                             below (buying), Default 0.75 (eg a sell; Last candle has 1% gains at price 100,
+                             the limit will be set to 100.75)
 """
-from numpy import greater, less, sum, nan_to_num
 
 
 
@@ -25,14 +58,18 @@ def initialize(state):
         "stop_loss": 0.12,
         "take_profit": 0.16,
         "lower_threshold": 15,
-        "bayes_period": 20}
+        "bayes_period": 20,
+        "order_type": "if_touched",
+        "limit_rate_candle": 0.75}
 
+
+@schedule(interval="15m", symbol=[
+    "VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "EGLDUSDT"])
 ### No fiddling from here below, all the settings are
 ### exposed in the state
 
 ### Main handler
-@schedule(interval="15m", symbol=[
-    "VITEUSDT", "MATICUSDT", "ZILUSDT", "EGLDUSDT", "RUNEUSDT"])
+
 def handler(state, data):
     portfolio = query_portfolio()
     balance_quoted = portfolio.excess_liquidity_quoted
@@ -73,13 +110,9 @@ def handler(state, data):
 
 def handler_main(state, data, amount):
     symbol = data.symbol
-    try:
-        params = state.params[symbol]
-    except KeyError:
-        params = state.params["DEFAULT"]
 
-    trail_percent, trail_limit = dynamic_trailing_limits(
-        data.open_last, data.close_last)
+    params = get_default_params(state, symbol)
+
     try:
         signal = state.signals[symbol]
     except KeyError:
@@ -90,6 +123,12 @@ def handler_main(state, data, amount):
     take_profit = params["take_profit"]
     lower_threshold = params["lower_threshold"]
     bayes_period =  params["bayes_period"]
+    order_type =  params["order_type"]
+    limit_rate_candle = params["limit_rate_candle"]
+
+    trail_percent, trail_limit = dynamic_trailing_limits(
+        data.open_last, data.close_last,
+        limit_rate=limit_rate_candle, trailing_rate=limit_rate_candle)
 
     bb_period = 20
     bb_std_dev_mult = 2
@@ -173,7 +212,7 @@ def handler_main(state, data, amount):
                 print("Update order for {}".format(data.symbol))
                 print("Buy value: ", buy_value, " at current market price: ", current_price)
                 update_or_init_buy_fine_tuning(
-                    symbol, buy_value, last_two_close, trail_percent, trail_limit, state)
+                    symbol, buy_value, last_two_close, trail_percent, trail_limit, state, order_type)
 
         elif signal == "sell":
 
@@ -204,7 +243,8 @@ def handler_main(state, data, amount):
                 # update order
                 print("Update sell position for {}".format(data.symbol))
                 update_or_init_sell_fine_tuning(
-                    symbol, sell_order.quantity, last_two_close, trail_percent, trail_limit, state)
+                    symbol, sell_order.quantity, last_two_close, trail_percent,
+                    trail_limit, state, order_type)
             pass
         return
     else:
@@ -223,7 +263,7 @@ def handler_main(state, data, amount):
         print("Buy value: ", buy_value, " at current market price: ", current_price)
         state.signals[symbol] = "buy"
         update_or_init_buy_fine_tuning(
-                    symbol, buy_value, last_two_close, trail_percent, trail_limit, state)
+                    symbol, buy_value, last_two_close, trail_percent, trail_limit, state, order_type)
 
     elif sell_signal and has_position:
         state.signals[symbol] = "sell"
@@ -233,7 +273,7 @@ def handler_main(state, data, amount):
         cancel_state_limit_orders(state, symbol)
         update_or_init_sell_fine_tuning(
             symbol, float(position.exposure), last_two_close, trail_percent,
-            trail_limit, state)
+            trail_limit, state, order_type)
 
 
 
@@ -306,7 +346,8 @@ def make_double_barrier(symbol,amount,take_profit,stop_loss,state):
     return order_upper, order_lower
 
 
-def update_or_init_sell_fine_tuning(symbol, amount, current_prices, trailing_percent, stop_limit, state):
+def update_or_init_sell_fine_tuning(
+    symbol, amount, current_prices, trailing_percent, stop_limit, state, order_type):
     try:
         old_order = state.fine_tuning[symbol]
     except KeyError:
@@ -320,12 +361,20 @@ def update_or_init_sell_fine_tuning(symbol, amount, current_prices, trailing_per
         cancel_state_tuning_orders(state, symbol)
     stop_price = current_price * (1 + stop_limit)
 
-    tune_order = order_trailing_iftouched_amount(symbol, amount=-1 * float(amount), 
-        trailing_percent=trailing_percent, stop_price=stop_price)
+    if order_type == "trailing":
+        tune_order = order_trailing_iftouched_amount(
+            symbol, amount=-1 * float(amount), trailing_percent=trailing_percent,
+            stop_price=stop_price)
+    elif order_type == "if_touched":
+        tune_order = order_iftouched_market_amount(
+            symbol, amount=-1 * float(amount), stop_price=stop_price)
+    else:
+        raise Exception("Supported orders type are only trailing or if_touched")
     state.fine_tuning[symbol] = tune_order
 
 
-def update_or_init_buy_fine_tuning(symbol, value, current_prices, trailing_percent, stop_limit, state):
+def update_or_init_buy_fine_tuning(
+    symbol, value, current_prices, trailing_percent, stop_limit, state, order_type):
     try:
         old_order = state.fine_tuning[symbol]
     except KeyError:
@@ -338,9 +387,14 @@ def update_or_init_buy_fine_tuning(symbol, value, current_prices, trailing_perce
     if old_order is not None:
         cancel_state_tuning_orders(state, symbol)
     stop_price = current_price * (1 - stop_limit)
-
-    tune_order = order_trailing_iftouched_value(symbol, value=value, 
-        trailing_percent=trailing_percent, stop_price=stop_price)
+    if order_type == "trailing":
+        tune_order = order_trailing_iftouched_value(symbol, value=value, 
+             trailing_percent=trailing_percent, stop_price=stop_price)
+    elif order_type == "if_touched":
+        tune_order = order_iftouched_market_value(
+            symbol, value=value, stop_price=stop_price)
+    else:
+        raise Exception("Supported orders type are only trailing or if_touched")
     state.fine_tuning[symbol] = tune_order
 
 
@@ -412,14 +466,16 @@ def compute_signal(
     buy_using_prob_prime = prob_prime == 0 and prob_prime_prev > lower_threshold / 100
     buy_using_sigma_probs_down = (sigma_probs_down < 1 and sigma_probs_down_prev == 1) or (
         sigma_probs_up_prev == 0 and sigma_probs_up > 0)
-    buy_using_sigma_probs_cross = cross_over(
-        [prob_prime_prev, prob_prime],
-        [sigma_probs_down_prev, sigma_probs_down])
-    sell_using_sigma_probs_cross = cross_under(
-        [prob_prime_prev, prob_prime],
-        [sigma_probs_down_prev, sigma_probs_down])
-    sell_signal = sell_using_prob_prime or sell_using_sigma_probs_up or sell_using_sigma_probs_cross
-    buy_signal = buy_using_prob_prime or buy_using_sigma_probs_down or buy_using_sigma_probs_cross
+    buy_using_sigma_probs_down_cross = cross_over(
+        [prob_prime_prev, prob_prime], [sigma_probs_down_prev, sigma_probs_down])
+    sell_using_sigma_probs_down_cross = cross_under(
+        [prob_prime_prev, prob_prime], [sigma_probs_down_prev, sigma_probs_down])
+    buy_using_sigma_probs_up_cross = cross_under(
+        [prob_prime_prev, prob_prime], [sigma_probs_up_prev, sigma_probs_up])
+    sell_using_sigma_probs_up_cross = cross_over(
+        [prob_prime_prev, prob_prime], [sigma_probs_up_prev, sigma_probs_up])
+    sell_signal = sell_using_prob_prime or sell_using_sigma_probs_up or sell_using_sigma_probs_down_cross #or sell_using_sigma_probs_up_cross
+    buy_signal = buy_using_prob_prime or buy_using_sigma_probs_down or buy_using_sigma_probs_down_cross #or sell_using_sigma_probs_up_cross
     buy_signal = buy_signal #and bbands_middle > current_price
     return (buy_signal, sell_signal)
 
@@ -441,3 +497,15 @@ def cross_under(x, y):
             return True
         else:
             return False
+
+
+def get_default_params(state, symbol):
+    default_params = state.params["DEFAULT"]
+    try:
+        params = state.params[symbol]
+        for key in default_params:
+            if key not in params.keys():
+                params[key] = default_params[key]
+    except KeyError:
+        params = default_params
+    return params
