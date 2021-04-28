@@ -99,16 +99,22 @@ def handler(state, data):
     if state.number_offset_trades < portfolio.number_of_offsetting_trades:
         
         pnl = query_portfolio_pnl()
-        print("-------")
-        print("Accumulated Pnl of Strategy: {}".format(pnl))
-        
         offset_trades = portfolio.number_of_offsetting_trades
         number_winners = portfolio.number_of_winning_trades
-        print("Number of winning trades {}/{}.".format(number_winners,offset_trades))
-        print("Best trade Return : {:.2%}".format(portfolio.best_trade_return))
-        print("Worst trade Return : {:.2%}".format(portfolio.worst_trade_return))
-        print("Average Profit per Winning Trade : {:.2f}".format(portfolio.average_profit_per_winning_trade))
-        print("Average Loss per Losing Trade : {:.2f}".format(portfolio.average_loss_per_losing_trade))
+        msg_data = {"pnl": str(pnl), "number_winners": number_winners,
+            "offset_trades": offset_trades, "best_trade_return": portfolio.best_trade_return,
+            "worst_trade_return": portfolio.worst_trade_return,
+            "average_profit_per_winning_trade": portfolio.average_profit_per_winning_trade,
+            "average_loss_per_losing_trade": portfolio.average_loss_per_losing_trade}
+        msg = (
+            "-------\n"
+            "Accumulated Pnl of Strategy:\n   %(pnl)s\n"
+            "Number of winning trades %(number_winners)i / %(offset_trades)i.\n"
+            "Best trade Return : %(best_trade_return).2f\n"
+            "Worst trade Return : %(worst_trade_return).2f\n"
+            "Average Profit per Winning Trade : %(average_profit_per_winning_trade).2f\n"
+            "Average Loss per Losing Trade : %(average_loss_per_losing_trade).2f\n")
+        print(msg % msg_data)
         # reset number offset trades
         state.number_offset_trades = portfolio.number_of_offsetting_trades
 
@@ -215,11 +221,13 @@ def handler_main(state, data, amount):
                     state.signals[symbol] = None
                     return
                 # update order
-                print("-------")
-                print("Update order for {}".format(data.symbol))
-                print("Buy value: ", buy_value, " at current market price: ", current_price)
-                update_or_init_buy_fine_tuning(
-                    symbol, buy_value, last_two_close, trail_percent, trail_limit, state, order_type)
+                update_msg_data = {
+                    "symbol": symbol, "value": buy_value, "current_price": current_price}
+                update_msg = (
+                    "-------\n"
+                    "Update order for %(symbol)s\n"
+                    "Buy value: %(value)f at current market price: %(current_price)f")
+                print(update_msg % update_msg_data)
 
         elif signal == "sell":
 
@@ -248,7 +256,13 @@ def handler_main(state, data, amount):
                     state.signals[symbol] = None
                     return
                 # update order
-                print("Update sell position for {}".format(data.symbol))
+                update_msg_data = {
+                    "symbol": symbol, "amount": sell_order.quantity, "current_price": current_price}
+                update_msg = (
+                    "-------\n"
+                    "Update sell order for %(symbol)s\n"
+                    "sell amount: %(amount)f at current market price: %(current_price)f")
+                print(update_msg % update_msg_data)
                 update_or_init_sell_fine_tuning(
                     symbol, sell_order.quantity, last_two_close, trail_percent,
                     trail_limit, state, order_type)
@@ -265,18 +279,26 @@ def handler_main(state, data, amount):
                 take_profit, stop_loss, state)
 
     if buy_signal and not has_position:
-        print("-------")
-        print("Buy Signal: creating market order for {}".format(data.symbol))
-        print("Buy value: ", buy_value, " at current market price: ", current_price)
+        signal_msg_data = {"symbol": symbol, "value": buy_value, "current_price": current_price}
+        signal_msg = (
+            "++++++\n"
+            "Buy Signal: creating market order for %(symbol)s\n"
+            "Buy value: %(value)s at current market price %(current_price)f\n"
+            "++++++\n")
+        print(signal_msg % signal_msg_data)
         state.signals[symbol] = "buy"
         update_or_init_buy_fine_tuning(
                     symbol, buy_value, last_two_close, trail_percent, trail_limit, state, order_type)
 
     elif sell_signal and has_position:
         state.signals[symbol] = "sell"
-        print("-------")
-        logmsg = "Sell Signal: closing {} position with exposure {} at current market price {}"
-        print(logmsg.format(data.symbol,float(position.exposure),current_price))
+        signal_msg_data = {"symbol": symbol, "amount": position.exposure, "current_price": current_price}
+        signal_msg = (
+            "++++++\n"
+            "Sell Signal: creating market order for %(symbol)s\n"
+            "Sell amount: %(amount)s at current market price %(current_price)f\n"
+            "++++++\n")
+        print(signal_msg % signal_msg_data)
         cancel_state_limit_orders(state, symbol)
         update_or_init_sell_fine_tuning(
             symbol, float(position.exposure), last_two_close, trail_percent,
@@ -360,6 +382,13 @@ def update_or_init_sell_fine_tuning(
     except KeyError:
         old_order = None
     if current_prices[0] > current_prices[1] and old_order is not None:
+        update_msg_data = {
+            "symbol": symbol, "current_price": current_prices[1], "prev_price": current_prices[0]}
+        update_msg = (
+            "-------\n"
+            "The current price  (%(current_price)f) is lower than the previous close: (%(prev_price)f)\n"
+            "Skip update sell order for %(symbol)s\n")
+        print(update_msg % update_msg_data)
         return
     current_price = current_prices[1]
 
@@ -367,7 +396,12 @@ def update_or_init_sell_fine_tuning(
         amount = old_order.quantity
         cancel_state_tuning_orders(state, symbol)
     stop_price = current_price * (1 + stop_limit)
-
+    update_msg_data = {
+        "symbol": symbol, "stop_price": stop_price}
+    update_msg = (
+        "-------\n"
+        "Sell order for %(symbol)s with limit %(stop_price)f\n")
+    print(update_msg % update_msg_data)
     if order_type == "trailing":
         tune_order = order_trailing_iftouched_amount(
             symbol, amount=-1 * float(amount), trailing_percent=trailing_percent,
@@ -387,6 +421,13 @@ def update_or_init_buy_fine_tuning(
     except KeyError:
         old_order = None
     if current_prices[0] < current_prices[1] and old_order is not None:
+        update_msg_data = {
+            "symbol": symbol, "current_price": current_prices[1], "prev_price": current_prices[0]}
+        update_msg = (
+            "-------\n"
+            "The current price  (%(current_price)f) is higher than the previous close: (%(prev_price)f)\n"
+            "Skip update buy order for %(symbol)s\n")
+        print(update_msg % update_msg_data)
         return
 
     current_price = current_prices[1]
@@ -394,6 +435,12 @@ def update_or_init_buy_fine_tuning(
     if old_order is not None:
         cancel_state_tuning_orders(state, symbol)
     stop_price = current_price * (1 - stop_limit)
+    update_msg_data = {
+        "symbol": symbol, "stop_price": stop_price}
+    update_msg = (
+        "-------\n"
+        "Buy order for %(symbol)s with limit %(stop_price)f\n")
+    print(update_msg % update_msg_data)
     if order_type == "trailing":
         tune_order = order_trailing_iftouched_value(symbol, value=value, 
              trailing_percent=trailing_percent, stop_price=stop_price)
