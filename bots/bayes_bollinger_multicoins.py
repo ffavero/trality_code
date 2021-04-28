@@ -104,16 +104,16 @@ def handler(state, data):
         offset_trades = portfolio.number_of_offsetting_trades
         number_winners = portfolio.number_of_winning_trades
         msg_data = {"pnl": str(pnl), "number_winners": number_winners,
-            "offset_trades": offset_trades, "best_trade_return": portfolio.best_trade_return,
-            "worst_trade_return": portfolio.worst_trade_return,
+            "offset_trades": offset_trades, "best_trade_return": portfolio.best_trade_return * 100,
+            "worst_trade_return": portfolio.worst_trade_return * 100,
             "average_profit_per_winning_trade": portfolio.average_profit_per_winning_trade,
             "average_loss_per_losing_trade": portfolio.average_loss_per_losing_trade}
         msg = (
             "-------\n"
             "Accumulated Pnl of Strategy:\n   %(pnl)s\n"
             "Number of winning trades %(number_winners)i / %(offset_trades)i.\n"
-            "Best trade Return : %(best_trade_return).2f\n"
-            "Worst trade Return : %(worst_trade_return).2f\n"
+            "Best trade Return : %(best_trade_return).2f%%\n"
+            "Worst trade Return : %(worst_trade_return).2f%%\n"
             "Average Profit per Winning Trade : %(average_profit_per_winning_trade).2f\n"
             "Average Loss per Losing Trade : %(average_loss_per_losing_trade).2f\n")
         print(msg % msg_data)
