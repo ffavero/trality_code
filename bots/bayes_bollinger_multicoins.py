@@ -12,6 +12,8 @@ DONATE = ("TIP JAR WALLET:  \n" +
 INTERVAL = "15m"
 SYMBOLS = ["VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "EGLDUSDT"]
 
+VERBOSE = False
+
 """
 Disclaimer: This script came with no guarantee of making profits, if you sustain substantial
 losses using this script I will take no responsability.
@@ -180,6 +182,15 @@ def handler_main(state, data, amount):
     sigma_probs_down_prev = bbres_prev[1]
     prob_prime_prev = bbres_prev[2]
 
+    if VERBOSE:
+        print(
+            "sigma_probs_up: %(sigma_probs_up)f, "
+            "sigma_probs_down: %(sigma_probs_up)f, "
+            "prob_prime: %(prob_prime)f" % {
+                "sigma_probs_up": sigma_probs_up,
+                "sigma_probs_down": sigma_probs_up,
+                "prob_prime": prob_prime})
+
     buy_signal, sell_signal = compute_signal(
         sigma_probs_up, sigma_probs_down, prob_prime, sigma_probs_up_prev,
         sigma_probs_down_prev, prob_prime_prev, bbands_middle, current_price, lower_threshold)
@@ -187,7 +198,8 @@ def handler_main(state, data, amount):
     state.bbres_prev[symbol] = bb_res
 
     if not trading_live:
-        print("Skip first candle to gather signals")
+        if VERBOSE:
+            print("Skip first candle to gather signals")
         return
 
     position = query_open_position_by_symbol(
@@ -227,7 +239,10 @@ def handler_main(state, data, amount):
                     "-------\n"
                     "Update order for %(symbol)s\n"
                     "Buy value: %(value)f at current market price: %(current_price)f")
-                print(update_msg % update_msg_data)
+                if VERBOSE:
+                    print(update_msg % update_msg_data)
+                update_or_init_buy_fine_tuning(
+                    symbol, buy_value, last_two_close, trail_percent, trail_limit, state, order_type)
 
         elif signal == "sell":
 
@@ -262,7 +277,8 @@ def handler_main(state, data, amount):
                     "-------\n"
                     "Update sell order for %(symbol)s\n"
                     "sell amount: %(amount)f at current market price: %(current_price)f")
-                print(update_msg % update_msg_data)
+                if VERBOSE:
+                    print(update_msg % update_msg_data)
                 update_or_init_sell_fine_tuning(
                     symbol, sell_order.quantity, last_two_close, trail_percent,
                     trail_limit, state, order_type)
@@ -388,7 +404,8 @@ def update_or_init_sell_fine_tuning(
             "-------\n"
             "The current price  (%(current_price)f) is lower than the previous close: (%(prev_price)f)\n"
             "Skip update sell order for %(symbol)s\n")
-        print(update_msg % update_msg_data)
+        if VERBOSE:
+            print(update_msg % update_msg_data)
         return
     current_price = current_prices[1]
 
@@ -401,7 +418,8 @@ def update_or_init_sell_fine_tuning(
     update_msg = (
         "-------\n"
         "Sell order for %(symbol)s with limit %(stop_price)f\n")
-    print(update_msg % update_msg_data)
+    if VERBOSE:
+        print(update_msg % update_msg_data)
     if order_type == "trailing":
         tune_order = order_trailing_iftouched_amount(
             symbol, amount=-1 * float(amount), trailing_percent=trailing_percent,
@@ -427,7 +445,8 @@ def update_or_init_buy_fine_tuning(
             "-------\n"
             "The current price  (%(current_price)f) is higher than the previous close: (%(prev_price)f)\n"
             "Skip update buy order for %(symbol)s\n")
-        print(update_msg % update_msg_data)
+        if VERBOSE:
+            print(update_msg % update_msg_data)
         return
 
     current_price = current_prices[1]
@@ -440,7 +459,8 @@ def update_or_init_buy_fine_tuning(
     update_msg = (
         "-------\n"
         "Buy order for %(symbol)s with limit %(stop_price)f\n")
-    print(update_msg % update_msg_data)
+    if VERBOSE:
+        print(update_msg % update_msg_data)
     if order_type == "trailing":
         tune_order = order_trailing_iftouched_value(symbol, value=value, 
              trailing_percent=trailing_percent, stop_price=stop_price)
