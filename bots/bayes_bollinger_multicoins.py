@@ -4,19 +4,26 @@ from numpy import greater, less, sum, nan_to_num
 TITLE = "Multicoin Bollinger Bands Bayesian Oscillator"
 VERSION = "21.1"
 ALIAS = "Mjollnir"
-AUTHOR = "Francesco @79bass in 2021-04-28"
+AUTHOR = "Francesco @79bass 2021-04-28"
 DONATE = ("TIP JAR WALLET:  \n" +  
            "ERC20:  0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c")
 
 
+INTERVAL = "15m"
+SYMBOLS = ["VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "EGLDUSDT"]
+
 """
+Disclaimer: This script came with no guarantee of making profits, if you sustain substantial
+losses using this script I will take no responsability.
+However if you are profiting from the bot you are welcome to tip me a coffee in the ERC20
+address :) 
 
 Changelog:
-Refactory of the original bayiesian bollinger bot
- - multiple coins trading
- - dynamic trailing market orders
- - tunable parameters for every coins
- - TODO: Portfolio weighted splits (eg you want to trade
+  Refactoring of the original bayesian bollinger bot
+  - multiple coins trading
+  - dynamic trailing market orders
+  - tunable parameters for every coins
+  - TODO: Portfolio weighted splits (eg you want to trade
    50% BTC and the remaining value to split it with other
    altcoins)
 
@@ -33,7 +40,7 @@ DOCS:
         - stop_loss: The percentage [0-1] of maximum loss before dropping a trade. Default 0.12 (12%)
         - take_profit: The percentage [0-1] of maximum gain before taking profit. Default 0.16 (16%)
         - lower_threshold: The limit in the derivative probability to consider a trade with 
-                           the prime_prob signal (other signal will not be affected by this). Defaiult 15
+                           the prime_prob signal (other signal will not be affected by this). Default 15
         - bayes_period: The numbers of previous candles to compute the probabilities. Default 20
         - order_type: The type of order to use from trality, available options are "trailing" or
                       "if_touched". Default "if_touched"
@@ -63,8 +70,8 @@ def initialize(state):
         "limit_rate_candle": 0.75}
 
 
-@schedule(interval="15m", symbol=[
-    "VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "EGLDUSDT"])
+@schedule(interval=INTERVAL, symbol=SYMBOLS)
+
 ### No fiddling from here below, all the settings are
 ### exposed in the state
 
