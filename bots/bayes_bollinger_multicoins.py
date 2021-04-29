@@ -538,10 +538,10 @@ def compute_signal(
   sigma_probs_down_prev, prob_prime_prev,bbands_middle, current_price, lower_threshold=15):
     sell_using_prob_prime = prob_prime > lower_threshold / 100 and prob_prime_prev == 0
     sell_using_sigma_probs_up = (sigma_probs_up < 1 and sigma_probs_up_prev == 1) or (
-        sigma_probs_down_prev == 0 and sigma_probs_down > 0)
+        sigma_probs_down_prev == 0 and sigma_probs_down > 0) or (sigma_probs_down_prev < 1 and sigma_probs_down == 1)
     buy_using_prob_prime = prob_prime == 0 and prob_prime_prev > lower_threshold / 100
     buy_using_sigma_probs_down = (sigma_probs_down < 1 and sigma_probs_down_prev == 1) or (
-        sigma_probs_up_prev == 0 and sigma_probs_up > 0)
+        sigma_probs_up_prev == 0 and sigma_probs_up > 0) or (sigma_probs_up_prev > 0 and sigma_probs_up == 0)
     buy_using_sigma_probs_down_cross = cross_over(
         [prob_prime_prev, prob_prime], [sigma_probs_down_prev, sigma_probs_down])
     sell_using_sigma_probs_down_cross = cross_under(
@@ -585,3 +585,4 @@ def get_default_params(state, symbol):
     except KeyError:
         params = default_params
     return params
+
