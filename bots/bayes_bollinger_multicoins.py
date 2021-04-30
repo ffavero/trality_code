@@ -233,18 +233,19 @@ def handler_main(state, data, amount):
                 if has_position:
                     cancel_state_tuning_orders(state, symbol)
                     state.signals[symbol] = None
-                    return
-                # update order
-                update_msg_data = {
-                    "symbol": symbol, "value": buy_value, "current_price": current_price}
-                update_msg = (
-                    "-------\n"
-                    "Update order for %(symbol)s\n"
-                    "Buy value: %(value)f at current market price: %(current_price)f")
-                if VERBOSE:
-                    print(update_msg % update_msg_data)
-                update_or_init_buy_fine_tuning(
-                    symbol, buy_value, last_two_close, trail_percent, trail_limit, state, order_type)
+                else:
+                    # update order
+                    update_msg_data = {
+                        "symbol": symbol, "value": buy_value, "current_price": current_price}
+                    update_msg = (
+                        "-------\n"
+                        "Update order for %(symbol)s\n"
+                        "Buy value: %(value)f at current market price: %(current_price)f")
+                    if VERBOSE:
+                        print(update_msg % update_msg_data)
+                    update_or_init_buy_fine_tuning(
+                        symbol, buy_value, last_two_close, trail_percent,
+                        trail_limit, state, order_type)
 
         elif signal == "sell":
 
@@ -271,21 +272,19 @@ def handler_main(state, data, amount):
                     cancel_state_limit_orders(state, symbol)
                     cancel_state_tuning_orders(state, symbol)
                     state.signals[symbol] = None
-                    return
-                # update order
-                update_msg_data = {
-                    "symbol": symbol, "amount": sell_order.quantity, "current_price": current_price}
-                update_msg = (
-                    "-------\n"
-                    "Update sell order for %(symbol)s\n"
-                    "sell amount: %(amount)f at current market price: %(current_price)f")
-                if VERBOSE:
-                    print(update_msg % update_msg_data)
-                update_or_init_sell_fine_tuning(
-                    symbol, sell_order.quantity, last_two_close, trail_percent,
-                    trail_limit, state, order_type)
-            pass
-        return
+                else:
+                    # update order
+                    update_msg_data = {
+                        "symbol": symbol, "amount": sell_order.quantity, "current_price": current_price}
+                    update_msg = (
+                        "-------\n"
+                        "Update sell order for %(symbol)s\n"
+                        "sell amount: %(amount)f at current market price: %(current_price)f")
+                    if VERBOSE:
+                        print(update_msg % update_msg_data)
+                    update_or_init_sell_fine_tuning(
+                        symbol, sell_order.quantity, last_two_close, trail_percent,
+                        trail_limit, state, order_type)
     else:
         try:
             stop_order = state.limit_orders[symbol]['order_lower']
@@ -296,7 +295,7 @@ def handler_main(state, data, amount):
                 symbol, float(position.exposure),
                 take_profit, stop_loss, state)
 
-    if buy_signal and not has_position:
+    if buy_signal and not has_position and state.signals[symbol] is None:
         signal_msg_data = {"symbol": symbol, "value": buy_value, "current_price": current_price}
         signal_msg = (
             "++++++\n"
@@ -308,7 +307,7 @@ def handler_main(state, data, amount):
         update_or_init_buy_fine_tuning(
                     symbol, buy_value, last_two_close, trail_percent, trail_limit, state, order_type)
 
-    elif sell_signal and has_position:
+    elif sell_signal and has_position and state.signals[symbol] is None:
         state.signals[symbol] = "sell"
         signal_msg_data = {"symbol": symbol, "amount": position.exposure, "current_price": current_price}
         signal_msg = (
