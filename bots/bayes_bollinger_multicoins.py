@@ -10,9 +10,15 @@ DONATE = ("TIP JAR WALLET:  \n" +
 
 
 INTERVAL = "15m"
-SYMBOLS = ["VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "EGLDUSDT"]
+SYMBOLS = [
+    "VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "EGLDUSDT"]
 
-VERBOSE = False
+VERBOSE = 1
+## 0 prints only signals and portfolio information
+## 1 prints updating orders info
+## 2 prints stats info at each candle
+
+SIGNALS = 3
 
 """
 Disclaimer: This script came with no guarantee of making profits, if you sustain substantial
@@ -157,6 +163,7 @@ def handler_main(state, data, amount):
         data.close.select('close'), bayes_period,
         bbands.select('bbands_upper'), bbands.select('bbands_lower'),
         bbands.select('bbands_middle'))
+
     last_two_close = data.close.select('close')[-2:]
 
     with PlotScope.group("bayesian_bollinger", symbol):
@@ -182,7 +189,7 @@ def handler_main(state, data, amount):
     sigma_probs_down_prev = bbres_prev[1]
     prob_prime_prev = bbres_prev[2]
 
-    if VERBOSE:
+    if VERBOSE >= 2:
         print(
             "%(symbol)s:\n"
             "    sigma_probs_up: %(sigma_probs_up)f\n"
@@ -195,12 +202,12 @@ def handler_main(state, data, amount):
 
     buy_signal, sell_signal = compute_signal(
         sigma_probs_up, sigma_probs_down, prob_prime, sigma_probs_up_prev,
-        sigma_probs_down_prev, prob_prime_prev, bbands_middle, current_price, lower_threshold)
+        sigma_probs_down_prev, prob_prime_prev, lower_threshold, SIGNALS)
 
     state.bbres_prev[symbol] = bb_res
 
     if not trading_live:
-        if VERBOSE:
+        if VERBOSE >= 1:
             print("Skip first candle to gather signals")
         return
 
@@ -241,7 +248,7 @@ def handler_main(state, data, amount):
                         "-------\n"
                         "Update order for %(symbol)s\n"
                         "Buy value: %(value)f at current market price: %(current_price)f")
-                    if VERBOSE:
+                    if VERBOSE >= 1:
                         print(update_msg % update_msg_data)
                     update_or_init_buy_fine_tuning(
                         symbol, buy_value, last_two_close, trail_percent,
@@ -280,7 +287,7 @@ def handler_main(state, data, amount):
                         "-------\n"
                         "Update sell order for %(symbol)s\n"
                         "sell amount: %(amount)f at current market price: %(current_price)f")
-                    if VERBOSE:
+                    if VERBOSE >= 1:
                         print(update_msg % update_msg_data)
                     update_or_init_sell_fine_tuning(
                         symbol, sell_order.quantity, last_two_close, trail_percent,
@@ -405,7 +412,7 @@ def update_or_init_sell_fine_tuning(
             "-------\n"
             "The current price  (%(current_price)f) is lower than the previous close: (%(prev_price)f)\n"
             "Skip update sell order for %(symbol)s\n")
-        if VERBOSE:
+        if VERBOSE >= 1:
             print(update_msg % update_msg_data)
         return
     current_price = current_prices[1]
@@ -419,7 +426,7 @@ def update_or_init_sell_fine_tuning(
     update_msg = (
         "-------\n"
         "Sell order for %(symbol)s with limit %(stop_price)f\n")
-    if VERBOSE:
+    if VERBOSE >= 1:
         print(update_msg % update_msg_data)
     if order_type == "trailing":
         tune_order = order_trailing_iftouched_amount(
@@ -446,7 +453,7 @@ def update_or_init_buy_fine_tuning(
             "-------\n"
             "The current price  (%(current_price)f) is higher than the previous close: (%(prev_price)f)\n"
             "Skip update buy order for %(symbol)s\n")
-        if VERBOSE:
+        if VERBOSE >= 1:
             print(update_msg % update_msg_data)
         return
 
@@ -460,7 +467,7 @@ def update_or_init_buy_fine_tuning(
     update_msg = (
         "-------\n"
         "Buy order for %(symbol)s with limit %(stop_price)f\n")
-    if VERBOSE:
+    if VERBOSE >= 1:
         print(update_msg % update_msg_data)
     if order_type == "trailing":
         tune_order = order_trailing_iftouched_value(symbol, value=value, 
@@ -534,24 +541,43 @@ def bbbayes(close, bayes_period, bb_upper, bb_basis, sma_values):
 
 def compute_signal(
   sigma_probs_up, sigma_probs_down, prob_prime,sigma_probs_up_prev,
-  sigma_probs_down_prev, prob_prime_prev,bbands_middle, current_price, lower_threshold=15):
+  sigma_probs_down_prev, prob_prime_prev, lower_threshold=15, n_signals=4):
     sell_using_prob_prime = prob_prime > lower_threshold / 100 and prob_prime_prev == 0
-    sell_using_sigma_probs_up = (sigma_probs_up < 1 and sigma_probs_up_prev == 1) or (
-        sigma_probs_down_prev == 0 and sigma_probs_down > 0) or (sigma_probs_down_prev < 1 and sigma_probs_down == 1)
+    sell_using_sigma_probs_up = [
+        sigma_probs_up < 1 and sigma_probs_up_prev == 1]
     buy_using_prob_prime = prob_prime == 0 and prob_prime_prev > lower_threshold / 100
-    buy_using_sigma_probs_down = (sigma_probs_down < 1 and sigma_probs_down_prev == 1) or (
-        sigma_probs_up_prev == 0 and sigma_probs_up > 0) or (sigma_probs_up_prev > 0 and sigma_probs_up == 0)
+    buy_using_sigma_probs_down = [
+        sigma_probs_down < 1 and sigma_probs_down_prev == 1]
+    if n_signals >= 1:
+        sell_using_sigma_probs_up.append(
+            sigma_probs_down_prev == 0 and sigma_probs_down > 0)
+        buy_using_sigma_probs_down.append(
+            sigma_probs_up_prev == 0 and sigma_probs_up > 0)
+    if n_signals >= 2:
+        sell_using_sigma_probs_up.append(
+            sigma_probs_down_prev < 1 and sigma_probs_down == 1)
+        buy_using_sigma_probs_down.append(
+            sigma_probs_up_prev > 0 and sigma_probs_up == 0)
     buy_using_sigma_probs_down_cross = cross_over(
         [prob_prime_prev, prob_prime], [sigma_probs_down_prev, sigma_probs_down])
     sell_using_sigma_probs_down_cross = cross_under(
         [prob_prime_prev, prob_prime], [sigma_probs_down_prev, sigma_probs_down])
-    buy_using_sigma_probs_up_cross = cross_under(
+    if n_signals >= 3:
+        sell_using_sigma_probs_up.append(
+            sell_using_sigma_probs_down_cross)
+        buy_using_sigma_probs_down.append(
+            buy_using_sigma_probs_down_cross)
+    buy_using_sigma_probs_up_cross = cross_over(
         [prob_prime_prev, prob_prime], [sigma_probs_up_prev, sigma_probs_up])
-    sell_using_sigma_probs_up_cross = cross_over(
+    sell_using_sigma_probs_up_cross = cross_under(
         [prob_prime_prev, prob_prime], [sigma_probs_up_prev, sigma_probs_up])
-    sell_signal = sell_using_prob_prime or sell_using_sigma_probs_up or sell_using_sigma_probs_down_cross #or sell_using_sigma_probs_up_cross
-    buy_signal = buy_using_prob_prime or buy_using_sigma_probs_down or buy_using_sigma_probs_down_cross #or sell_using_sigma_probs_up_cross
-    buy_signal = buy_signal #and bbands_middle > current_price
+    if n_signals >= 4:
+        sell_using_sigma_probs_up.append(
+            sell_using_sigma_probs_up_cross)
+        buy_using_sigma_probs_down.append(
+            buy_using_sigma_probs_up_cross)
+    sell_signal = sell_using_prob_prime or any(sell_using_sigma_probs_up)
+    buy_signal = buy_using_prob_prime or any(buy_using_sigma_probs_down)
     return (buy_signal, sell_signal)
 
 
@@ -584,4 +610,3 @@ def get_default_params(state, symbol):
     except KeyError:
         params = default_params
     return params
-
