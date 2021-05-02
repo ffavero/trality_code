@@ -18,7 +18,7 @@ VERBOSE = 1
 ## 1 prints updating orders info
 ## 2 prints stats info at each candle
 
-SIGNALS = 3
+SIGNALS = [1, 2, 3, 4]
 
 """
 Disclaimer: This script came with no guarantee of making profits, if you sustain substantial
@@ -70,7 +70,7 @@ def initialize(state):
     state.fine_tuning = {}
     state.params = {}
     state.params["DEFAULT"] = {
-        "stop_loss": 0.12,
+        "stop_loss": 0.1,
         "take_profit": 0.16,
         "lower_threshold": 15,
         "bayes_period": 20,
@@ -548,12 +548,12 @@ def compute_signal(
     buy_using_prob_prime = prob_prime == 0 and prob_prime_prev > lower_threshold / 100
     buy_using_sigma_probs_down = [
         sigma_probs_down < 1 and sigma_probs_down_prev == 1]
-    if n_signals >= 1:
+    if 1 in n_signals:
         sell_using_sigma_probs_up.append(
             sigma_probs_down_prev == 0 and sigma_probs_down > 0)
         buy_using_sigma_probs_down.append(
             sigma_probs_up_prev == 0 and sigma_probs_up > 0)
-    if n_signals >= 2:
+    if 2 in n_signals:
         sell_using_sigma_probs_up.append(
             sigma_probs_down_prev < 1 and sigma_probs_down == 1)
         buy_using_sigma_probs_down.append(
@@ -562,7 +562,7 @@ def compute_signal(
         [prob_prime_prev, prob_prime], [sigma_probs_down_prev, sigma_probs_down])
     sell_using_sigma_probs_down_cross = cross_under(
         [prob_prime_prev, prob_prime], [sigma_probs_down_prev, sigma_probs_down])
-    if n_signals >= 3:
+    if 3 in n_signals:
         sell_using_sigma_probs_up.append(
             sell_using_sigma_probs_down_cross)
         buy_using_sigma_probs_down.append(
@@ -571,7 +571,7 @@ def compute_signal(
         [prob_prime_prev, prob_prime], [sigma_probs_up_prev, sigma_probs_up])
     sell_using_sigma_probs_up_cross = cross_under(
         [prob_prime_prev, prob_prime], [sigma_probs_up_prev, sigma_probs_up])
-    if n_signals >= 4:
+    if 4 in n_signals:
         sell_using_sigma_probs_up.append(
             sell_using_sigma_probs_up_cross)
         buy_using_sigma_probs_down.append(
