@@ -18,7 +18,7 @@ VERBOSE = 1
 ## 1 prints updating orders info
 ## 2 prints stats info at each candle
 
-SIGNALS = [1, 2, 3, 4]
+SIGNALS = [1]
 
 """
 Disclaimer: This script came with no guarantee of making profits, if you sustain substantial
