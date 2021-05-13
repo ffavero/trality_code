@@ -2,8 +2,8 @@ from numpy import greater, less, sum, nan_to_num
 
 
 TITLE = "Multicoin Bollinger Bands Bayesian Oscillator"
-VERSION = "24.1"
-ALIAS = "PingPongGo"
+VERSION = "25.1"
+ALIAS = "BollingerBad"
 AUTHOR = "Francesco @79bass 2021-04-28"
 DONATE = ("TIP JAR WALLET:  \n" +  
            "ERC20:  0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c")
@@ -11,14 +11,24 @@ DONATE = ("TIP JAR WALLET:  \n" +
 
 INTERVAL = "15m"
 SYMBOLS = [
-    "VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "EGLDUSDT"]
+    "VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "BTCDOWNUSDT"]
+#   "ETHUSDT", "MATICUSDT", "ADAUSDT", "BTCDOWNUSDT"]
+
 VERBOSE = 1
 
 ## 0 prints only signals and portfolio information
 ## 1 prints updating orders info
 ## 2 prints stats info at each candle
 
-SIGNALS = [1]
+SIGNALS = [1, 2, 3, 4]
+
+## for market orders
+#SIGNALS = [1, 3, 4]
+
+## for market orders and ETH/BTC etc
+#SIGNALS = [1]
+
+## Set symbol-specific signals settings in state.signal_mode
 
 """
 Disclaimer: This script came with no guarantee of making profits, if you sustain substantial
@@ -50,8 +60,8 @@ DOCS:
         - lower_threshold: The limit in the derivative probability to consider a trade with 
                            the prime_prob signal (other signal will not be affected by this). Default 15
         - bayes_period: The numbers of previous candles to compute the probabilities. Default 20
-        - order_type: The type of order to use from trality, available options are "limit", "trailing" or
-                      "if_touched". Default "if_touched"
+        - order_type: The type of order to use from trality, available options are "limit", "market", "trailing" or
+                      "if_touched". Default "trailing"
         - limit_rate_candle: The percentage on the last candle to set the limit above (selling) or
                              below (buying), Default 0.75 (eg a sell; Last candle has 1% gains at price 100,
                              the limit will be set to 100.75)
@@ -70,13 +80,16 @@ def initialize(state):
     state.fine_tuning = {}
     state.params = {}
     state.params["DEFAULT"] = {
-        "stop_loss": 0.1,
+        "stop_loss": 0.12,
         "take_profit": 0.16,
         "lower_threshold": 15,
         "bayes_period": 20,
-        "order_type": "if_touched",
-        "limit_rate_candle": 0.75}
-
+        "order_type": "trailing",
+        "limit_rate_candle": 0.75,
+        "signals_mode": SIGNALS}
+    # state.params["BTCDOWNUSDT"] = {
+    #     "signals_mode": [1]
+    # }
 
 @schedule(interval=INTERVAL, symbol=SYMBOLS)
 
@@ -175,6 +188,8 @@ def handler_main(state, data, amount):
     bayes_period =  params["bayes_period"]
     order_type =  params["order_type"]
     limit_rate_candle = params["limit_rate_candle"]
+    signals_mode =  params["signals_mode"]
+
 
     trail_percent, trail_limit = dynamic_trailing_limits(
         data.open_last, data.close_last,
@@ -230,8 +245,9 @@ def handler_main(state, data, amount):
                 "prob_prime": prob_prime})
 
     buy_signal, sell_signal = compute_signal(
-        sigma_probs_up, sigma_probs_down, prob_prime, sigma_probs_up_prev,
-        sigma_probs_down_prev, prob_prime_prev, lower_threshold, SIGNALS)
+        sigma_probs_up, sigma_probs_down, prob_prime,
+        sigma_probs_up_prev, sigma_probs_down_prev,
+        prob_prime_prev, lower_threshold, signals_mode)
 
     state.bbres_prev[symbol] = bb_res
 
@@ -341,9 +357,19 @@ def handler_main(state, data, amount):
             "Buy value: %(value)s at current market price %(current_price)f\n"
             "++++++\n")
         print(signal_msg % signal_msg_data)
-        state.signals[symbol] = "buy"
-        update_or_init_buy_fine_tuning(
-                    symbol, buy_value, last_two_close, trail_percent, trail_limit, state, order_type)
+        if order_type == "market":
+            buy_order = order_market_value(
+                symbol=symbol, value=buy_value)
+            state.signals[symbol] = None
+            state.fine_tuning[symbol] = None
+            make_double_barrier(
+                symbol, float(buy_order.quantity), take_profit,
+                stop_loss, state)
+        else:
+            state.signals[symbol] = "buy"
+            update_or_init_buy_fine_tuning(
+                        symbol, buy_value, last_two_close,
+                        trail_percent, trail_limit, state, order_type)
 
     elif sell_signal and has_position and state.signals[symbol] is None:
         state.signals[symbol] = "sell"
@@ -355,9 +381,14 @@ def handler_main(state, data, amount):
             "++++++\n")
         print(signal_msg % signal_msg_data)
         cancel_state_limit_orders(state, symbol)
-        update_or_init_sell_fine_tuning(
-            symbol, float(position.exposure), last_two_close, trail_percent,
-            trail_limit, state, order_type)
+        if order_type == "market":
+            state.signals[symbol] = None
+            state.fine_tuning[symbol] = None
+            close_position(symbol)
+        else:
+            update_or_init_sell_fine_tuning(
+                symbol, float(position.exposure), last_two_close,
+                trail_percent, trail_limit, state, order_type)
 
 
 
@@ -505,7 +536,6 @@ def update_or_init_buy_fine_tuning(
     if old_order is not None:
         cancel_state_tuning_orders(state, symbol)
         try:
-            print(old_order.executed_price, old_order.executed_quantity)
             executed_value = old_order.executed_price * old_order.executed_quantity
         except TypeError:
             executed_value = 0
