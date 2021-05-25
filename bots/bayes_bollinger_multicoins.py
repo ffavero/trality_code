@@ -2,14 +2,17 @@ from numpy import greater, less, sum, nan_to_num
 
 
 TITLE = "Multicoin Bollinger Bands Bayesian Oscillator"
-VERSION = "25.1"
-ALIAS = "BollingerBad"
+VERSION = "30.1"
+ALIAS = "TestMac"
 AUTHOR = "Francesco @79bass 2021-04-28"
 DONATE = ("TIP JAR WALLET:  \n" +  
            "ERC20:  0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c")
 
-
+INTERVAL_MACD_COORDINATOR = "1h"
 INTERVAL = "15m"
+
+# INTERVAL_MACD_COORDINATOR = "6h"
+# INTERVAL = "1h"
 SYMBOLS = [
     "VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "BTCDOWNUSDT"]
 #   "ETHUSDT", "MATICUSDT", "ADAUSDT", "BTCDOWNUSDT"]
@@ -20,15 +23,7 @@ VERBOSE = 1
 ## 1 prints updating orders info
 ## 2 prints stats info at each candle
 
-SIGNALS = [1, 2, 3, 4]
-
-## for market orders
-#SIGNALS = [1, 3, 4]
-
-## for market orders and ETH/BTC etc
-#SIGNALS = [1]
-
-## Set symbol-specific signals settings in state.signal_mode
+SIGNALS = [1, 3, 4]
 
 """
 Disclaimer: This script came with no guarantee of making profits, if you sustain substantial
@@ -77,26 +72,39 @@ def initialize(state):
     state.bbres_prev = {}
     state.limit_orders = {}
     state.signals = {}
+    state.semaphore = {}
     state.fine_tuning = {}
     state.params = {}
     state.params["DEFAULT"] = {
-        "stop_loss": 0.12,
+        "stop_loss": 0.16,
         "take_profit": 0.16,
         "lower_threshold": 15,
         "bayes_period": 20,
-        "order_type": "trailing",
+        "order_type": "market",
         "limit_rate_candle": 0.75,
         "signals_mode": SIGNALS}
-    # state.params["BTCDOWNUSDT"] = {
-    #     "signals_mode": [1]
-    # }
+    state.params["BTCDOWNUSDT"] = {
+        "signals_mode": [1]
+    }
 
-@schedule(interval=INTERVAL, symbol=SYMBOLS)
 
 ### No fiddling from here below, all the settings are
 ### exposed in the state
 
+# MACD coordinator
+@schedule(
+    interval=INTERVAL_MACD_COORDINATOR, symbol=SYMBOLS)
+def coordinator_handler(state, data):
+    try:
+        for this_symbol in data.keys():
+            coordinator_main(state, data[this_symbol])
+    except TypeError:
+        coordinator_main(state, data)
+
+
+
 ### Main handler
+@schedule(interval=INTERVAL, symbol=SYMBOLS)
 
 def handler(state, data):
     portfolio = query_portfolio()
@@ -171,16 +179,35 @@ def handler_bnb(state, data):
 
 ### generic handler function with main strategy
 
-def handler_main(state, data, amount):
+def coordinator_main(state, data):
     symbol = data.symbol
 
     params = get_default_params(state, symbol)
 
     try:
-        signal = state.signals[symbol]
+        last_semaphore = state.semaphore[symbol][1]
     except KeyError:
-        state.signals[symbol] = None
-        signal = state.signals[symbol]
+        state.semaphore[symbol] = ["green", "green"]
+        last_semaphore = state.semaphore[symbol][1]
+    macd = data.macd(
+        12, 26, 9)
+    macd_histogram_last = macd.select("macd_histogram")[-1]
+    macd_histogram_2nd_last = macd.select("macd_histogram")[-2]
+    #this_semaphore = state.semaphore[symbol][1]
+    #this_semaphore = "green"
+    if macd_histogram_last < 0:
+        this_semaphore = "red"
+    elif macd_histogram_last > 0:
+        this_semaphore = "green"
+
+    state.semaphore[symbol] = [last_semaphore, this_semaphore]
+
+
+def handler_main(state, data, amount):
+    symbol = data.symbol
+    buy_value = amount
+
+    params = get_default_params(state, symbol)
 
     stop_loss = params["stop_loss"]
     take_profit = params["take_profit"]
@@ -189,6 +216,22 @@ def handler_main(state, data, amount):
     order_type =  params["order_type"]
     limit_rate_candle = params["limit_rate_candle"]
     signals_mode =  params["signals_mode"]
+
+    try:
+        semaphores = state.semaphore[symbol]
+    except KeyError:
+        state.semaphore[symbol] = ["green", "green"]
+        semaphores = state.semaphore[symbol]
+
+    position = query_open_position_by_symbol(
+        symbol, include_dust=False)
+    has_position = position is not None
+
+    try:
+        signal = state.signals[symbol]
+    except KeyError:
+        state.signals[symbol] = None
+        signal = state.signals[symbol]
 
 
     trail_percent, trail_limit = dynamic_trailing_limits(
@@ -214,8 +257,6 @@ def handler_main(state, data, amount):
         plot("sigma_up", bb_res[0])
         plot("sigma_down", bb_res[1])
         plot("prime_prob", bb_res[2])
-
-    buy_value = amount
 
     sigma_probs_up = bb_res[0]
     sigma_probs_down = bb_res[1]
@@ -250,15 +291,39 @@ def handler_main(state, data, amount):
         prob_prime_prev, lower_threshold, signals_mode)
 
     state.bbres_prev[symbol] = bb_res
+    
+    if semaphores[1] == "red" and not has_position:
+        # if has_position:
+        #     close_position(symbol)
+        #     cancel_state_limit_orders(state, symbol)
+        #     cancel_state_tuning_orders(state, symbol)
+        #     state.signals[symbol] = None
+        semaphore_msg_close = (
+            "The %s %s MACD histogram showing downtrend: "
+            "stopping the strategy from buying "
+            "until the trend changes")
+        print(semaphore_msg_close % (
+            symbol, INTERVAL_MACD_COORDINATOR))
+        return
+    # if semaphores[1] == "green" and semaphores[0] == "red" and not has_position:
+    #     buy_order = order_market_value(
+    #         symbol=symbol, value=buy_value)
+    #     state.signals[symbol] = None
+    #     state.fine_tuning[symbol] = None
+    #     make_double_barrier(
+    #         symbol, float(buy_order.quantity), take_profit,
+    #         stop_loss, state)          
+    #     semaphore_msg_open = (
+    #         "The %s %s MACD histogram changed direction: "
+    #         "opening a position hoping for the best :)")
+    #     print(semaphore_msg_open % (
+    #         symbol, INTERVAL_MACD_COORDINATOR))
+    #     return
 
     if not trading_live:
         if VERBOSE >= 1:
             print("Skip first candle to gather signals")
         return
-
-    position = query_open_position_by_symbol(
-        data.symbol, include_dust=False)
-    has_position = position is not None
 
     if signal is not None:
         if signal == "buy":
