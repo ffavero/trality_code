@@ -193,11 +193,11 @@ def coordinator_main(state, data):
         12, 26, 9)
     macd_histogram_last = macd.select("macd_histogram")[-1]
     macd_histogram_2nd_last = macd.select("macd_histogram")[-2]
-    #this_semaphore = state.semaphore[symbol][1]
-    #this_semaphore = "green"
-    if macd_histogram_last < 0:
+    this_semaphore = state.semaphore[symbol][1]
+    # this_semaphore = "green"
+    if macd_histogram_last < macd_histogram_2nd_last and macd_histogram_2nd_last < macd.select("macd_histogram")[-3]:
         this_semaphore = "red"
-    elif macd_histogram_last > 0:
+    elif macd_histogram_last > macd_histogram_2nd_last and macd_histogram_2nd_last > macd.select("macd_histogram")[-3]:
         this_semaphore = "green"
 
     state.semaphore[symbol] = [last_semaphore, this_semaphore]
@@ -761,3 +761,7 @@ def get_default_params(state, symbol):
     except KeyError:
         params = default_params
     return params
+
+# def atr_tp_sl+percent(close, atr, n=6):
+#     close +
+
