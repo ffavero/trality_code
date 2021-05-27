@@ -1,20 +1,22 @@
 from numpy import greater, less, sum, nan_to_num
+from trality.indicator import ema
 
 
 TITLE = "Multicoin Bollinger Bands Bayesian Oscillator"
 VERSION = "30.1"
 ALIAS = "TestMac"
-AUTHOR = "Francesco @79bass 2021-04-28"
+AUTHOR = "Francesco @79bass 2021-05-28"
 DONATE = ("TIP JAR WALLET:  \n" +  
            "ERC20:  0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c")
 
 INTERVAL_MACD_COORDINATOR = "1h"
 INTERVAL = "15m"
+INTERVAL_BNB = "15m"
 
 # INTERVAL_MACD_COORDINATOR = "6h"
 # INTERVAL = "1h"
 SYMBOLS = [
-    "VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "BTCDOWNUSDT"]
+   "VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "BTCDOWNUSDT"]
 #   "ETHUSDT", "MATICUSDT", "ADAUSDT", "BTCDOWNUSDT"]
 
 VERBOSE = 1
@@ -73,11 +75,12 @@ def initialize(state):
     state.limit_orders = {}
     state.signals = {}
     state.semaphore = {}
+    state.long_atr = {}
     state.fine_tuning = {}
     state.params = {}
     state.params["DEFAULT"] = {
-        "stop_loss": 0.16,
-        "take_profit": 0.16,
+        "atr_stop_loss_n": 4,
+        "atr_take_profit_n": 6,
         "lower_threshold": 15,
         "bayes_period": 20,
         "order_type": "market",
@@ -148,7 +151,7 @@ def handler(state, data):
         state.number_offset_trades = portfolio.number_of_offsetting_trades
 
 ## handler to buy BNB to pay subtract_fees
-@schedule(interval="30m", symbol="BNBUSDT")
+@schedule(interval=INTERVAL_BNB, symbol="BNBUSDT")
 def handler_bnb(state, data):
     add_bnb_amount = 11
     low_bnb_amount = 5
@@ -184,6 +187,8 @@ def coordinator_main(state, data):
 
     params = get_default_params(state, symbol)
 
+    stop_loss_n = params["atr_stop_loss_n"]
+    take_profit_n = params["atr_take_profit_n"]
     try:
         last_semaphore = state.semaphore[symbol][1]
     except KeyError:
@@ -191,14 +196,38 @@ def coordinator_main(state, data):
         last_semaphore = state.semaphore[symbol][1]
     macd = data.macd(
         12, 26, 9)
+    # atr = data.atr(4).last
+    N = 1
+    faster_signal = float(ema(macd.select("macd"), 9 / N).flatten()[-1])
+    with PlotScope.group("faster_macd", symbol):
+        plot("macd", macd.select("macd")[-1])
+        plot("signal", macd.select("macd_signal")[-1])
+        plot("fatser", faster_signal)
+
+    signal_diff = macd.select("macd")[-1] - faster_signal
+    position = query_open_position_by_symbol(
+        symbol, include_dust=False)
+    
+    # has_position = position is not None
+
     macd_histogram_last = macd.select("macd_histogram")[-1]
     macd_histogram_2nd_last = macd.select("macd_histogram")[-2]
     this_semaphore = state.semaphore[symbol][1]
-    # this_semaphore = "green"
-    if macd_histogram_last < macd_histogram_2nd_last and macd_histogram_2nd_last < macd.select("macd_histogram")[-3]:
-        this_semaphore = "red"
-    elif macd_histogram_last > macd_histogram_2nd_last and macd_histogram_2nd_last > macd.select("macd_histogram")[-3]:
-        this_semaphore = "green"
+    #this_semaphore = "green"
+    # if macd_histogram_last < macd_histogram_2nd_last and macd_histogram_2nd_last < macd.select("macd_histogram")[-3]:
+    #     this_semaphore = "red"
+    # elif macd_histogram_last > macd_histogram_2nd_last and macd_histogram_2nd_last > macd.select("macd_histogram")[-3]:
+    #     this_semaphore = "green"
+    
+    # if macd_histogram_last < 0:
+    #      this_semaphore = "red"
+    # elif macd_histogram_last > 0:
+    #      this_semaphore = "green"
+
+    if signal_diff < 0:
+         this_semaphore = "red"
+    elif signal_diff > 0:
+         this_semaphore = "green"
 
     state.semaphore[symbol] = [last_semaphore, this_semaphore]
 
@@ -209,8 +238,10 @@ def handler_main(state, data, amount):
 
     params = get_default_params(state, symbol)
 
-    stop_loss = params["stop_loss"]
-    take_profit = params["take_profit"]
+    stop_loss_n = params["atr_stop_loss_n"]
+    take_profit_n = params["atr_take_profit_n"]
+    # stop_loss = params["atr_stop_loss_n"]
+    # take_profit = params["atr_take_profit_n"]    
     lower_threshold = params["lower_threshold"]
     bayes_period =  params["bayes_period"]
     order_type =  params["order_type"]
@@ -241,11 +272,34 @@ def handler_main(state, data, amount):
     bb_period = 20
     bb_std_dev_mult = 2
     bbands = data.bbands(bb_period, bb_std_dev_mult)
+    atr = data.atr(14).last
 
     if bbands is None:
         return
 
     current_price = data.close_last
+    stop_loss, sl_price = atr_tp_sl_percent(
+        float(current_price), float(atr), stop_loss_n, False)
+    take_profit, tp_price = atr_tp_sl_percent(
+        float(current_price), float(atr), take_profit_n, True)
+
+    # take_profit = 0.16
+    if has_position:
+        # position_price = float(position.entry_price)
+        # new_sl, sl_price = atr_tp_sl_percent(
+        #     float(position_price), float(atr), stop_loss_n, False)
+        # new_tp, tp_price = atr_tp_sl_percent(
+        #     float(position_price), float(atr), take_profit_n, True)
+        # cancel_state_limit_orders(state, symbol)
+        # make_double_barrier(
+        #      symbol, float(position.exposure), new_tp,
+        #      new_sl, state)
+        tp_price = state.limit_orders[symbol]["order_upper"].stop_price
+        sl_price = state.limit_orders[symbol]["order_lower"].stop_price
+        with PlotScope.root(symbol):
+            plot("tp", tp_price)
+            plot("sl", sl_price)
+
     bb_res = bbbayes(
         data.close.select('close'), bayes_period,
         bbands.select('bbands_upper'), bbands.select('bbands_lower'),
@@ -305,20 +359,6 @@ def handler_main(state, data, amount):
         print(semaphore_msg_close % (
             symbol, INTERVAL_MACD_COORDINATOR))
         return
-    # if semaphores[1] == "green" and semaphores[0] == "red" and not has_position:
-    #     buy_order = order_market_value(
-    #         symbol=symbol, value=buy_value)
-    #     state.signals[symbol] = None
-    #     state.fine_tuning[symbol] = None
-    #     make_double_barrier(
-    #         symbol, float(buy_order.quantity), take_profit,
-    #         stop_loss, state)          
-    #     semaphore_msg_open = (
-    #         "The %s %s MACD histogram changed direction: "
-    #         "opening a position hoping for the best :)")
-    #     print(semaphore_msg_open % (
-    #         symbol, INTERVAL_MACD_COORDINATOR))
-    #     return
 
     if not trading_live:
         if VERBOSE >= 1:
@@ -762,6 +802,11 @@ def get_default_params(state, symbol):
         params = default_params
     return params
 
-# def atr_tp_sl+percent(close, atr, n=6):
-#     close +
+
+def atr_tp_sl_percent(close, atr, n=6, tp=True):
+    if tp is True:
+        tp = close + (n * atr)
+    else:
+        tp = close - (n * atr)
+    return (abs(tp - close) / close, tp)
 
