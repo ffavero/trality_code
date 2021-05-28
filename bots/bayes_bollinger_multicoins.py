@@ -3,11 +3,12 @@ from trality.indicator import ema
 
 
 TITLE = "Multicoin Bollinger Bands Bayesian Oscillator"
-VERSION = "30.1"
+VERSION = "39.1"
 ALIAS = "TestMac"
-AUTHOR = "Francesco @79bass 2021-05-28"
-DONATE = ("TIP JAR WALLET:  \n" +  
-           "ERC20:  0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c")
+AUTHOR = "Francesco @79bass 2021-04-28"
+DONATE = ("TIP JAR WALLET:  " +
+          "BEP-20: 0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c"
+          "ERC20:  0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c")
 
 INTERVAL_MACD_COORDINATOR = "1h"
 INTERVAL = "15m"
@@ -25,7 +26,7 @@ VERBOSE = 1
 ## 1 prints updating orders info
 ## 2 prints stats info at each candle
 
-SIGNALS = [1, 3, 4]
+SIGNALS = [1, 2, 3, 4]
 
 """
 Disclaimer: This script came with no guarantee of making profits, if you sustain substantial
@@ -294,11 +295,18 @@ def handler_main(state, data, amount):
         # make_double_barrier(
         #      symbol, float(position.exposure), new_tp,
         #      new_sl, state)
-        tp_price = state.limit_orders[symbol]["order_upper"].stop_price
-        sl_price = state.limit_orders[symbol]["order_lower"].stop_price
-        with PlotScope.root(symbol):
-            plot("tp", tp_price)
-            plot("sl", sl_price)
+        try:
+            tp_price = state.limit_orders[
+                symbol]["order_upper"].stop_price
+            sl_price = state.limit_orders[
+                symbol]["order_lower"].stop_price
+            with PlotScope.root(symbol):
+                plot("tp", tp_price)
+                plot("sl", sl_price)
+        except Exception:
+            pass
+
+
 
     bb_res = bbbayes(
         data.close.select('close'), bayes_period,
