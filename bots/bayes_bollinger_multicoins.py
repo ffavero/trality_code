@@ -16,6 +16,8 @@ INTERVAL_BNB = "15m"
 
 # INTERVAL_MACD_COORDINATOR = "6h"
 # INTERVAL = "1h"
+# INTERVAL_BNB = "1h"
+
 SYMBOLS = [
    "VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "BTCDOWNUSDT"]
 #   "ETHUSDT", "MATICUSDT", "ADAUSDT", "BTCDOWNUSDT"]
@@ -26,7 +28,7 @@ VERBOSE = 1
 ## 1 prints updating orders info
 ## 2 prints stats info at each candle
 
-SIGNALS = [1, 2, 3, 4]
+SIGNALS = [1, 3, 4]
 
 """
 Disclaimer: This script came with no guarantee of making profits, if you sustain substantial
@@ -198,6 +200,12 @@ def coordinator_main(state, data):
     macd = data.macd(
         12, 26, 9)
     # atr = data.atr(4).last
+    vwma_data = data.vwma(14)
+    vwma = vwma_data.last
+    vma_diff = vwma - vwma_data.select("vwma")[-2]
+
+    current_price = data.close_last
+
     N = 1
     faster_signal = float(ema(macd.select("macd"), 9 / N).flatten()[-1])
     with PlotScope.group("faster_macd", symbol):
@@ -215,20 +223,25 @@ def coordinator_main(state, data):
     macd_histogram_2nd_last = macd.select("macd_histogram")[-2]
     this_semaphore = state.semaphore[symbol][1]
     #this_semaphore = "green"
-    # if macd_histogram_last < macd_histogram_2nd_last and macd_histogram_2nd_last < macd.select("macd_histogram")[-3]:
+    # if (macd_histogram_last < macd_histogram_2nd_last and macd_histogram_2nd_last < macd.select("macd_histogram")[-3]):
     #     this_semaphore = "red"
-    # elif macd_histogram_last > macd_histogram_2nd_last and macd_histogram_2nd_last > macd.select("macd_histogram")[-3]:
+    # elif (macd_histogram_last > macd_histogram_2nd_last and macd_histogram_2nd_last > macd.select("macd_histogram")[-3]):
     #     this_semaphore = "green"
     
-    # if macd_histogram_last < 0:
+    if macd_histogram_last < 0 or current_price < vwma:
+         this_semaphore = "red"
+    elif macd_histogram_last > 0 or current_price > vwma:
+         this_semaphore = "green"
+
+    # if macd_histogram_last < 0 or vma_diff < 0:
     #      this_semaphore = "red"
-    # elif macd_histogram_last > 0:
+    # elif macd_histogram_last > 0 or vma_diff > 0:
     #      this_semaphore = "green"
 
-    if signal_diff < 0:
-         this_semaphore = "red"
-    elif signal_diff > 0:
-         this_semaphore = "green"
+    # if signal_diff < 0:
+    #      this_semaphore = "red"
+    # elif signal_diff > 0:
+    #      this_semaphore = "green"
 
     state.semaphore[symbol] = [last_semaphore, this_semaphore]
 
@@ -285,27 +298,6 @@ def handler_main(state, data, amount):
         float(current_price), float(atr), take_profit_n, True)
 
     # take_profit = 0.16
-    if has_position:
-        # position_price = float(position.entry_price)
-        # new_sl, sl_price = atr_tp_sl_percent(
-        #     float(position_price), float(atr), stop_loss_n, False)
-        # new_tp, tp_price = atr_tp_sl_percent(
-        #     float(position_price), float(atr), take_profit_n, True)
-        # cancel_state_limit_orders(state, symbol)
-        # make_double_barrier(
-        #      symbol, float(position.exposure), new_tp,
-        #      new_sl, state)
-        try:
-            tp_price = state.limit_orders[
-                symbol]["order_upper"].stop_price
-            sl_price = state.limit_orders[
-                symbol]["order_lower"].stop_price
-            with PlotScope.root(symbol):
-                plot("tp", tp_price)
-                plot("sl", sl_price)
-        except Exception:
-            pass
-
 
 
     bb_res = bbbayes(
@@ -353,7 +345,29 @@ def handler_main(state, data, amount):
         prob_prime_prev, lower_threshold, signals_mode)
 
     state.bbres_prev[symbol] = bb_res
-    
+
+    if has_position and not sell_signal:
+        # position_price = float(position.entry_price)
+        # new_sl, sl_price = atr_tp_sl_percent(
+        #     float(position_price), float(atr), stop_loss_n, False)
+        # new_tp, tp_price = atr_tp_sl_percent(
+        #     float(position_price), float(atr), take_profit_n, True)
+        # cancel_state_limit_orders(state, symbol)
+        # make_double_barrier(
+        #      symbol, float(position.exposure), new_tp,
+        #      new_sl, state)
+        try:
+            tp_price = state.limit_orders[
+                symbol]["order_upper"].stop_price
+            sl_price = state.limit_orders[
+                symbol]["order_lower"].stop_price
+            with PlotScope.root(symbol):
+                plot("tp", tp_price)
+                plot("sl", sl_price)
+        except Exception:
+            pass
+
+
     if semaphores[1] == "red" and not has_position:
         # if has_position:
         #     close_position(symbol)
