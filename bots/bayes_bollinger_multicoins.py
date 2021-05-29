@@ -11,7 +11,7 @@ DONATE = ("TIP JAR WALLET:  " +
           "ERC20:  0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c")
 
 INTERVAL_MACD_COORDINATOR = "1h"
-INTERVAL = "15m"
+INTERVAL = "5m"
 INTERVAL_BNB = "15m"
 
 # INTERVAL_MACD_COORDINATOR = "6h"
@@ -28,7 +28,7 @@ VERBOSE = 1
 ## 1 prints updating orders info
 ## 2 prints stats info at each candle
 
-SIGNALS = [1, 3, 4]
+SIGNALS = [1, 3, 4, 5]
 
 """
 Disclaimer: This script came with no guarantee of making profits, if you sustain substantial
@@ -789,6 +789,11 @@ def compute_signal(
             sell_using_sigma_probs_up_cross and max([prob_prime_prev, prob_prime]) > lower_threshold_dec)
         buy_using_sigma_probs_down.append(
             buy_using_sigma_probs_up_cross and max([prob_prime_prev, prob_prime]) > lower_threshold_dec)
+    if 5 in n_signals:
+        buy_using_sigma_probs_down.append(
+                sigma_probs_up > sigma_probs_down and sigma_probs_up > prob_prime and sigma_probs_up_prev > sigma_probs_up)
+        # sell_using_sigma_probs_up.append(
+        #         sigma_probs_down_prev < 1 and sigma_probs_down == 1 and sigma_probs_down > sigma_probs_up and sigma_probs_down > prob_prime and sigma_probs_down)
     sell_signal = sell_using_prob_prime or any(sell_using_sigma_probs_up)
     buy_signal = buy_using_prob_prime or any(buy_using_sigma_probs_down)
     return (buy_signal, sell_signal)
