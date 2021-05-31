@@ -1,5 +1,5 @@
 from numpy import greater, less, sum, nan_to_num
-from trality.indicator import ema
+from datetime import datetime
 
 
 TITLE = "Multicoin Bollinger Bands Bayesian Oscillator"
@@ -18,8 +18,7 @@ INTERVAL_BNB = "15m"
 # INTERVAL = "1h"
 # INTERVAL_BNB = "1h"
 
-SYMBOLS = [
-   "VITEUSDT", "MATICUSDT", "ZILUSDT", "RUNEUSDT", "BTCDOWNUSDT"]
+SYMBOLS = ["BTCDOWNUSDT", "ETHDOWNUSDT", "LTCDOWNUSDT"]
 #   "ETHUSDT", "MATICUSDT", "ADAUSDT", "BTCDOWNUSDT"]
 
 VERBOSE = 1
@@ -81,6 +80,7 @@ def initialize(state):
     state.long_atr = {}
     state.fine_tuning = {}
     state.params = {}
+    state.summary_performance = {}
     state.params["DEFAULT"] = {
         "atr_stop_loss_n": 4,
         "atr_take_profit_n": 6,
@@ -187,7 +187,6 @@ def handler_bnb(state, data):
 
 def coordinator_main(state, data):
     symbol = data.symbol
-
     params = get_default_params(state, symbol)
 
     stop_loss_n = params["atr_stop_loss_n"]
@@ -206,14 +205,6 @@ def coordinator_main(state, data):
 
     current_price = data.close_last
 
-    N = 1
-    faster_signal = float(ema(macd.select("macd"), 9 / N).flatten()[-1])
-    with PlotScope.group("faster_macd", symbol):
-        plot("macd", macd.select("macd")[-1])
-        plot("signal", macd.select("macd_signal")[-1])
-        plot("fatser", faster_signal)
-
-    signal_diff = macd.select("macd")[-1] - faster_signal
     position = query_open_position_by_symbol(
         symbol, include_dust=False)
     
@@ -238,18 +229,12 @@ def coordinator_main(state, data):
     # elif macd_histogram_last > 0 or vma_diff > 0:
     #      this_semaphore = "green"
 
-    # if signal_diff < 0:
-    #      this_semaphore = "red"
-    # elif signal_diff > 0:
-    #      this_semaphore = "green"
-
     state.semaphore[symbol] = [last_semaphore, this_semaphore]
 
 
 def handler_main(state, data, amount):
     symbol = data.symbol
     buy_value = amount
-
     params = get_default_params(state, symbol)
 
     stop_loss_n = params["atr_stop_loss_n"]
@@ -270,7 +255,37 @@ def handler_main(state, data, amount):
 
     position = query_open_position_by_symbol(
         symbol, include_dust=False)
+
     has_position = position is not None
+
+    try:
+        summary_perf = state.summary_performance[symbol]
+    except KeyError:
+        state.summary_performance[symbol] = {
+            "positions": [], "winning": 0, "tot": 0, "pnl": 0}
+        summary_perf = state.summary_performance[symbol]
+    if has_position and position.id not in summary_perf["positions"]:
+        state.summary_performance[symbol]["positions"].append(position.id)
+    if int(datetime.fromtimestamp(data.last_time / 1000).minute) == 0:
+        position_ids = state.summary_performance[symbol]['positions']
+        still_open_positions = []
+        for pos_id in position_ids:
+            position = query_position_by_id(pos_id)
+            if position.exit_price is None:
+                still_open_positions.append(pos_id)
+            else:
+                pnl = float(position.realized_pnl)
+                if pnl > 0:
+                    state.summary_performance[symbol]['winning'] += 1
+                state.summary_performance[symbol]['tot'] += 1
+                state.summary_performance[symbol]['pnl'] += pnl
+        state.summary_performance[symbol]['positions'] = still_open_positions
+        perf_message = ("%s winning positions %i/%i, realized pnl: %.3f")
+        print(
+            perf_message % (
+                symbol, state.summary_performance[symbol]['winning'],
+                state.summary_performance[symbol]['tot'],
+                float(state.summary_performance[symbol]['pnl'])))
 
     try:
         signal = state.signals[symbol]
