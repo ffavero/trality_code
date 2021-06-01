@@ -3,7 +3,7 @@ from datetime import datetime
 
 
 TITLE = "Multicoin Bollinger Bands Bayesian Oscillator"
-VERSION = "39.1"
+VERSION = "41.1"
 ALIAS = "TestMac"
 AUTHOR = "Francesco @79bass 2021-04-28"
 DONATE = ("TIP JAR WALLET:  " +
@@ -18,8 +18,8 @@ INTERVAL_BNB = "15m"
 # INTERVAL = "1h"
 # INTERVAL_BNB = "1h"
 
-SYMBOLS = ["BTCDOWNUSDT", "ETHDOWNUSDT", "LTCDOWNUSDT"]
-#   "ETHUSDT", "MATICUSDT", "ADAUSDT", "BTCDOWNUSDT"]
+SYMBOLS = [
+   "ZILUSDT", "MATICUSDT", "RUNEUSDT", "VITEUSDT", "BTCDOWNUSDT"]
 
 VERBOSE = 1
 
@@ -90,6 +90,12 @@ def initialize(state):
         "limit_rate_candle": 0.75,
         "signals_mode": SIGNALS}
     state.params["BTCDOWNUSDT"] = {
+        "signals_mode": [1]
+    }
+    state.params["ADADOWNUSDT"] = {
+        "signals_mode": [1]
+    }
+    state.params["ETHDOWNUSDT"] = {
         "signals_mode": [1]
     }
 
@@ -201,7 +207,7 @@ def coordinator_main(state, data):
     # atr = data.atr(4).last
     vwma_data = data.vwma(14)
     vwma = vwma_data.last
-    vma_diff = vwma - vwma_data.select("vwma")[-2]
+    vma_diff = vwma - vwma_data.select("vwma")[-3]
 
     current_price = data.close_last
 
@@ -223,6 +229,10 @@ def coordinator_main(state, data):
          this_semaphore = "red"
     elif macd_histogram_last > 0 or current_price > vwma:
          this_semaphore = "green"
+    if vma_diff > 0:
+        state.params[symbol]["signals_mode"] = [1]
+    elif vma_diff < 0:
+        state.params[symbol]["signals_mode"] = [1, 3, 4, 5]
 
     # if macd_histogram_last < 0 or vma_diff < 0:
     #      this_semaphore = "red"
@@ -302,6 +312,7 @@ def handler_main(state, data, amount):
     bb_std_dev_mult = 2
     bbands = data.bbands(bb_period, bb_std_dev_mult)
     atr = data.atr(14).last
+    adx = data.adx(14).last
 
     if bbands is None:
         return
@@ -842,6 +853,7 @@ def get_default_params(state, symbol):
                 params[key] = default_params[key]
     except KeyError:
         params = default_params
+        state.params[symbol] = params
     return params
 
 
@@ -851,4 +863,3 @@ def atr_tp_sl_percent(close, atr, n=6, tp=True):
     else:
         tp = close - (n * atr)
     return (abs(tp - close) / close, tp)
-
