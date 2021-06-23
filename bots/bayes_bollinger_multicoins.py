@@ -3,7 +3,7 @@ from datetime import datetime
 
 
 TITLE = "Multicoin Bollinger Bands Bayesian Oscillator"
-VERSION = "41.1"
+VERSION = "39.1"
 ALIAS = "TestMac"
 AUTHOR = "Francesco @79bass 2021-04-28"
 DONATE = ("TIP JAR WALLET:  " +
@@ -19,7 +19,10 @@ INTERVAL_BNB = "15m"
 # INTERVAL_BNB = "1h"
 
 SYMBOLS = [
-   "ZILUSDT", "MATICUSDT", "RUNEUSDT", "VITEUSDT", "BTCDOWNUSDT"]
+   "VITEUSDT", "MATICUSDT", "RUNEUSDT", "ZILUSDT", "BTCDOWNUSDT"]
+
+#   "ADAUSDT", "MATICUSDT", "ETHUSDT", "DOTUSDT", "SOLUSDT"]
+#   "ZILUSDT", "MATICUSDT", "RUNEUSDT", "VITEUSDT", "BTCDOWNUSDT"]
 
 VERBOSE = 1
 
@@ -27,7 +30,7 @@ VERBOSE = 1
 ## 1 prints updating orders info
 ## 2 prints stats info at each candle
 
-SIGNALS = [1, 3, 4, 5]
+SIGNALS = [1, 5]
 
 """
 Disclaimer: This script came with no guarantee of making profits, if you sustain substantial
@@ -77,29 +80,36 @@ def initialize(state):
     state.limit_orders = {}
     state.signals = {}
     state.semaphore = {}
+    state.zero_signal_timer = {}
     state.long_atr = {}
     state.fine_tuning = {}
     state.params = {}
     state.summary_performance = {}
     state.params["DEFAULT"] = {
-        "atr_stop_loss_n": 4,
+        "atr_stop_loss_n": 6,
         "atr_take_profit_n": 6,
         "lower_threshold": 15,
         "bayes_period": 20,
         "order_type": "market",
         "limit_rate_candle": 0.75,
+        "max_candles_with_0_signals": 24,
+        "use_semaphore": True,
+        "lenient_with_uptrend": True,
+        "buy_with_ema45": False,
         "signals_mode": SIGNALS}
-    state.params["BTCDOWNUSDT"] = {
-        "signals_mode": [1]
+    state.params["VITEUSDT"] = {
+        "signals_mode": [1, 3, 4, 5]
     }
-    state.params["ADADOWNUSDT"] = {
-        "signals_mode": [1]
+    state.params["ZILUSDT"] = {
+        "signals_mode": [1, 3, 4, 5],
+        "buy_with_ema45": False
     }
-    state.params["ETHDOWNUSDT"] = {
-        "signals_mode": [1]
+    state.params["RUNEUSDT"] = {
+        "signals_mode": [1, 3, 4, 5]
     }
-
-
+    state.params["EGLDUSDT"] = {
+        "signals_mode": [1, 3, 4, 5]
+    }
 ### No fiddling from here below, all the settings are
 ### exposed in the state
 
@@ -197,6 +207,7 @@ def coordinator_main(state, data):
 
     stop_loss_n = params["atr_stop_loss_n"]
     take_profit_n = params["atr_take_profit_n"]
+    lenient_with_uptrend = params["lenient_with_uptrend"]
     try:
         last_semaphore = state.semaphore[symbol][1]
     except KeyError:
@@ -204,10 +215,10 @@ def coordinator_main(state, data):
         last_semaphore = state.semaphore[symbol][1]
     macd = data.macd(
         12, 26, 9)
-    # atr = data.atr(4).last
     vwma_data = data.vwma(14)
+    adx = data.adx(14).last
     vwma = vwma_data.last
-    vma_diff = vwma - vwma_data.select("vwma")[-3]
+    vma_diff = vwma - vwma_data.select("vwma")[-2]
 
     current_price = data.close_last
 
@@ -224,15 +235,39 @@ def coordinator_main(state, data):
     #     this_semaphore = "red"
     # elif (macd_histogram_last > macd_histogram_2nd_last and macd_histogram_2nd_last > macd.select("macd_histogram")[-3]):
     #     this_semaphore = "green"
-    
     if macd_histogram_last < 0 or current_price < vwma:
-         this_semaphore = "red"
+        if lenient_with_uptrend:
+            if vma_diff < 0:
+                this_semaphore = "red"
+        else:
+            this_semaphore = "red"
     elif macd_histogram_last > 0 or current_price > vwma:
-         this_semaphore = "green"
-    if vma_diff > 0:
-        state.params[symbol]["signals_mode"] = [1]
-    elif vma_diff < 0:
-        state.params[symbol]["signals_mode"] = [1, 3, 4, 5]
+        this_semaphore = "green"
+
+
+
+
+    # if adx > atx_strong_trend_limit:
+    #     state.params[symbol]["signals_mode"] = state.params[symbol]["signals_mode1"]
+    # elif vma_diff > 0:
+    #     state.params[symbol]["signals_mode"] = state.params[symbol]["signals_mode2"]
+    # elif vma_diff < 0:
+    #     state.params[symbol]["signals_mode"] = state.params[symbol]["signals_mode1"]
+
+    # if adx >= 25:
+    #     state.params[symbol]["signals_mode"] = [1]
+    # elif adx < 25:
+    #     state.params[symbol]["signals_mode"] = [1, 3, 4, 5]
+
+    # if  adx >= 25 and vma_diff >= 0:
+    #     state.params[symbol]["signals_mode"] = [1, 3, 4, 5]
+    # elif adx >= 25 and vma_diff < 0:
+    #     state.params[symbol]["signals_mode"] = [1]
+    # elif adx < 25 and vma_diff < 0:
+    #     state.params[symbol]["signals_mode"] = [1, 3, 4, 5]
+    # else:
+    #     state.params[symbol]["signals_mode"] = [1]
+
 
     # if macd_histogram_last < 0 or vma_diff < 0:
     #      this_semaphore = "red"
@@ -243,6 +278,8 @@ def coordinator_main(state, data):
 
 
 def handler_main(state, data, amount):
+    if data is None:
+        return
     symbol = data.symbol
     buy_value = amount
     params = get_default_params(state, symbol)
@@ -256,12 +293,21 @@ def handler_main(state, data, amount):
     order_type =  params["order_type"]
     limit_rate_candle = params["limit_rate_candle"]
     signals_mode =  params["signals_mode"]
+    max_candles_with_0_signals = params["max_candles_with_0_signals"]
+    use_semaphore = params["use_semaphore"]
+    buy_with_ema45 = params["buy_with_ema45"]
 
     try:
         semaphores = state.semaphore[symbol]
     except KeyError:
         state.semaphore[symbol] = ["green", "green"]
         semaphores = state.semaphore[symbol]
+
+    try:
+        zero_signal_timer = state.zero_signal_timer[symbol]
+    except KeyError:
+        state.zero_signal_timer[symbol] = 0
+        zero_signal_timer = state.zero_signal_timer[symbol]
 
     position = query_open_position_by_symbol(
         symbol, include_dust=False)
@@ -312,7 +358,23 @@ def handler_main(state, data, amount):
     bb_std_dev_mult = 2
     bbands = data.bbands(bb_period, bb_std_dev_mult)
     atr = data.atr(14).last
-    adx = data.adx(14).last
+    adx_data = data.adx(14)
+    fisher = data.fisher(14)
+    wad = data.wad()
+    adx = adx_data.last
+    ema30 = data.ema(30).last
+    cr45 = cross_over(data.ema(45).select("ema")[-2:], data.close.select("close")[-2:])
+    cr45 = cr45 or cross_under(data.ema(45).select("ema")[-2:], data.close.select("close")[-2:])
+
+    with PlotScope.group("ema45", symbol):
+        plot("cross ema45", int(cr45))
+
+    with PlotScope.group("wad", symbol):
+        plot("wad", wad.last)
+        plot("wad_sma", wad.sma(8).last)
+        plot("wad_sma_long", wad.sma(20).last)
+
+    adx_diff = adx - adx_data[-2]
 
     if bbands is None:
         return
@@ -322,8 +384,6 @@ def handler_main(state, data, amount):
         float(current_price), float(atr), stop_loss_n, False)
     take_profit, tp_price = atr_tp_sl_percent(
         float(current_price), float(atr), take_profit_n, True)
-
-    # take_profit = 0.16
 
 
     bb_res = bbbayes(
@@ -338,9 +398,16 @@ def handler_main(state, data, amount):
         plot("sigma_down", bb_res[1])
         plot("prime_prob", bb_res[2])
 
+
     sigma_probs_up = bb_res[0]
     sigma_probs_down = bb_res[1]
     prob_prime = bb_res[2]
+
+    if (sigma_probs_up + sigma_probs_down + prob_prime) == 0:
+        state.zero_signal_timer[symbol] += 1
+    else:
+        state.zero_signal_timer[symbol] = 0
+
     try:
         bbres_prev = state.bbres_prev[symbol]
         trading_live = True
@@ -365,12 +432,50 @@ def handler_main(state, data, amount):
                 "sigma_probs_down": sigma_probs_up,
                 "prob_prime": prob_prime})
 
-    buy_signal, sell_signal = compute_signal(
+    buy_signal, sell_signal, a, b = compute_signal(
         sigma_probs_up, sigma_probs_down, prob_prime,
         sigma_probs_up_prev, sigma_probs_down_prev,
         prob_prime_prev, lower_threshold, signals_mode)
+    if state.zero_signal_timer[symbol] >= max_candles_with_0_signals:
+        sell_signal = True
+    # if b["0"] == True and semaphores[1] == "red":
+    #     semaphores[1] = "green"
+    #     state.semaphore[symbol][1] = "green"
+    #     state.semaphore_override[symbol] = True
+    # if a["0"] == True and state.semaphore_override[symbol] == True:
+    #     state.semaphore_override[symbol] = False
+
+    # if b["0"] == True and buy_signal == True:
+    #     buy_signal = False
+    #     state.semaphore_override[symbol] = True
+    # if a["0"] == True and sell_signal == True:
+    #     sell_signal = False
+
+    with PlotScope.group("semaphore", symbol):
+        if semaphores[1] == "red":
+            plot("semaphore", 0)
+        elif semaphores[1] == "green":
+            plot("semaphore", 1)
+
+    with PlotScope.group("signal", symbol):
+        plot("0", int(a["0"]) + (-1 * int(b["0"])))
+    with PlotScope.group("signals", symbol):
+        plot("buy", int(buy_signal))
+        plot("sell", -1 * int(sell_signal))
+    #     if len(a[1]) > 2:
+    #         plot("3", int(a[1][1]) + (-1 * int(b[1][1])))
+    #         plot("4", int(a[1][2]) + (-1 * int(b[1][2])))
+    #         plot("5", int(a[1][3]) + (-1 * int(b[1][3])))
 
     state.bbres_prev[symbol] = bb_res
+
+    if buy_with_ema45:
+        buy_signal = cr45
+
+    if buy_signal and ema30 > bbands.select('bbands_middle')[-1]:
+        pass
+    else:
+        buy_signal = False
 
     if has_position and not sell_signal:
         # position_price = float(position.entry_price)
@@ -394,7 +499,7 @@ def handler_main(state, data, amount):
             pass
 
 
-    if semaphores[1] == "red" and not has_position:
+    if semaphores[1] == "red" and not has_position and use_semaphore:
         # if has_position:
         #     close_position(symbol)
         #     cancel_state_limit_orders(state, symbol)
@@ -778,13 +883,21 @@ def bbbayes(close, bayes_period, bb_upper, bb_basis, sma_values):
 def compute_signal(
     sigma_probs_up, sigma_probs_down, prob_prime,sigma_probs_up_prev,
     sigma_probs_down_prev, prob_prime_prev, lower_threshold=15, n_signals=4):
+    buy_signal_record = {"0": False}
+    sell_signal_record = {"0": False}
+    for signal_index in n_signals:
+        buy_signal_record["%i" % signal_index] = False
+        sell_signal_record["%i" % signal_index] = False
+
     lower_threshold_dec = lower_threshold / 100.0
     sell_using_prob_prime = prob_prime > lower_threshold_dec and prob_prime_prev == 0
-    sell_using_sigma_probs_up = [
-        sigma_probs_up < 1 and sigma_probs_up_prev == 1]
+    sell_base_signal = sigma_probs_up < 1 and sigma_probs_up_prev == 1
     buy_using_prob_prime = prob_prime == 0 and prob_prime_prev > lower_threshold_dec
-    buy_using_sigma_probs_down = [
-        sigma_probs_down < 1 and sigma_probs_down_prev == 1]
+    buy_base_signal = sigma_probs_down < 1 and sigma_probs_down_prev == 1
+    buy_signal_record["0"] = buy_base_signal or buy_using_prob_prime
+    sell_signal_record["0"] = sell_base_signal or sell_using_prob_prime
+    sell_using_sigma_probs_up = [sell_base_signal]
+    buy_using_sigma_probs_down = [buy_base_signal]
     if 1 in n_signals:
         sell_using_sigma_probs_up.append(
             sigma_probs_down_prev == 0 and sigma_probs_down > 0)
@@ -822,7 +935,7 @@ def compute_signal(
         #         sigma_probs_down_prev < 1 and sigma_probs_down == 1 and sigma_probs_down > sigma_probs_up and sigma_probs_down > prob_prime and sigma_probs_down)
     sell_signal = sell_using_prob_prime or any(sell_using_sigma_probs_up)
     buy_signal = buy_using_prob_prime or any(buy_using_sigma_probs_down)
-    return (buy_signal, sell_signal)
+    return (buy_signal, sell_signal, buy_signal_record, sell_signal_record)
 
 
 def cross_over(x, y):
@@ -863,3 +976,4 @@ def atr_tp_sl_percent(close, atr, n=6, tp=True):
     else:
         tp = close - (n * atr)
     return (abs(tp - close) / close, tp)
+
