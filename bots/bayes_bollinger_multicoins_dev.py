@@ -11,20 +11,19 @@ DONATE = ("TIP JAR WALLET:  "
           "BEP-20: 0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c"
           "ERC20:  0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c")
 
-INTERVAL_MACD_COORDINATOR_LONG = "6h"
 INTERVAL_MACD_COORDINATOR = "1h"
 
 INTERVAL = "15m"
 INTERVAL_BNB = "15m"
 
-# INTERVAL_MACD_COORDINATOR_LONG = "1d"
 # INTERVAL_MACD_COORDINATOR = "6h"
 # INTERVAL = "1h"
 # INTERVAL_BNB = "1h"
 
 SYMBOLS = [
-"VITEUSDT", "MATICUSDT", "RUNEUSDT", "ZILUSDT", "BTCDOWNUSDT"]
-
+    "VITEUSDT", "MATICUSDT", "RUNEUSDT", "ZILUSDT", "BTCDOWNUSDT"]
+#"1INCHUSDT", "AAVEUSDT", "ADAUSDT", "ALGOUSDT", "ATOMUSDT"]
+#"AVAXUSDT", "BCHUSDT", "BNBUSDT", "BTCUSDT", "BTTUSDT"]
 #   "ADAUSDT", "MATICUSDT", "ETHUSDT", "DOTUSDT", "SOLUSDT"]
 #   "ZILUSDT", "MATICUSDT", "RUNEUSDT", "VITEUSDT", "BTCDOWNUSDT"]
 
@@ -54,10 +53,9 @@ def initialize(state):
         "bayes_period": 20,
         "max_candels_with_0_signals": 24,
         "use_semaphore": True,
-        "use_long_coordinator": False,
         "lenient_with_uptrend": True,
         "buy_with_ema45": False,
-        "wait_for_confirmation": True,
+        "wait_for_confirmation": False,
         "filter_ema30": True,
         "signals_mode": SIGNALS}
     state.params["RUNEUSDT"] = {
@@ -133,37 +131,6 @@ def handler_bnb(state, data):
                 "Buying BNB, current amount %f" % amount_bnb)
             order_market_value(data.symbol, value=add_bnb_amount)
 
-# def coordinator_main(state, data):
-#     symbol = data.symbol
-#     params = get_default_params(state, symbol)
-
-#     stop_loss_n = params["atr_stop_loss_n"]
-#     take_profit_n = params["atr_take_profit_n"]
-#     lenient_with_uptrend = params["lenient_with_uptrend"]
-#     try:
-#         last_semaphore = state.semaphore[symbol][1]
-#     except KeyError:
-#         state.semaphore[symbol] = ["green", "green"]
-#         last_semaphore = state.semaphore[symbol][1]
-#     macd = data.macd(
-#         12, 26, 9)
-#     vwma_data = data.vwma(14)
-#     adx = data.adx(14).last
-#     vwma = vwma_data.last
-#     vma_diff = vwma - vwma_data.select("vwma")[-2]
-#     current_price = data.close_last
-#     macd_histogram_last = macd.select("macd_histogram")[-1]
-#     macd_histogram_2nd_last = macd.select("macd_histogram")[-2]
-#     this_semaphore = state.semaphore[symbol][1]
-#     if macd_histogram_last < 0 or current_price < vwma:
-#         if lenient_with_uptrend:
-#             if vma_diff < 0:
-#                 this_semaphore = "red"
-#         else:
-#             this_semaphore = "red"
-#     elif macd_histogram_last > 0 or current_price > vwma:
-#         this_semaphore = "green"
-#     state.semaphore[symbol] = [last_semaphore, this_semaphore]
 
 def coordinator_main(state, data):
     if data is None:
@@ -199,36 +166,6 @@ def coordinator_main(state, data):
         this_semaphore = "green"
     state.semaphore[symbol][1] = this_semaphore
 
-
-def coordinator_long(state, data):
-    if data is None:
-        return
-    symbol = data.symbol
-    params = get_default_params(state, symbol)
-
-    use_long_coordinator = params["use_long_coordinator"]
-    
-    try:
-        last_semaphore = state.semaphore[symbol][0]
-    except KeyError:
-        state.semaphore[symbol] = ["green", "green"]
-        last_semaphore = state.semaphore[symbol][0]
-    macd = data.macd(
-        12, 26, 9)
-    vwma_data = data.vwma(14)
-    adx = data.adx(14).last
-    macd_histogram_last = macd.select("macd_histogram")[-1]
-    macd_histogram_2nd_last = macd.select("macd_histogram")[-2]
-    this_semaphore = state.semaphore[symbol][0]
-    if use_long_coordinator:
-        if macd_histogram_last < 0 or (macd_histogram_last - macd_histogram_2nd_last < 0):
-            this_semaphore = "red"
-        else:
-            this_semaphore = "green"
-    else:
-        this_semaphore = "green"
-    
-    state.semaphore[symbol][0] = this_semaphore
 
 def handler_main(state, data, amount):
     if data is None:
@@ -298,6 +235,16 @@ def handler_main(state, data, amount):
         float(current_price), float(atr), stop_loss_n, False)
     take_profit, tp_price = atr_tp_sl_percent(
         float(current_price), float(atr), take_profit_n, True)
+    
+    # Place stop loss for manually added positions
+    if position_manager.has_position and not position_manager.is_stop_placed():
+        position_manager.double_barrier(take_profit, stop_loss)
+        # next_atr_step = current_price + (atr_decrease_steps * atr)        
+        # state.next_atr_price[symbol][0] = next_atr_step
+        # state.next_atr_price[symbol][1] = stop_loss_n
+        next_atr_step = current_price + (3 * atr)        
+        state.next_atr_price[symbol][0] = next_atr_step
+        state.next_atr_price[symbol][1] = 3
 
     # if position_manager.has_position and next_atr_price[0] < current_price:
     #     if next_atr_price[1] > 2:
@@ -342,22 +289,32 @@ def handler_main(state, data, amount):
         sigma_probs_up_prev, sigma_probs_down_prev,
         prob_prime_prev, lower_threshold, signals_mode)
     last_rsis = rsi1.select("ema")[-90:]
+
     last_adxs = adx_data.select("dx")[-90:]
     last_prices = data.select("close")[-90:]
 
-    # last_peaks = detect_peaks(last_rsis, mpd=8)
-    # last_valleys = detect_peaks(last_rsis, mpd=8, valley=True)
-    # last_dx_peaks = detect_peaks(last_adxs, mpd=8)
-    # last_dx_valleys = detect_peaks(last_adxs, mpd=8, valley=True)
-
-    last_peaks = detect_peaks(last_rsis, mph=60, mpd=6, edge=None)
-    last_valleys = detect_peaks(last_rsis, mph=50, mpd=6, edge=None, valley=True)
-    last_dx_peaks = detect_peaks(last_adxs, mph=30, mpd=8, edge=None)
-    last_dx_valleys = detect_peaks(last_adxs, mph=20, mpd=8, edge=None, valley=True)
+    last_peaks = detect_peaks(
+        last_rsis, mpd=8, mph=30, edge=None, kpsh=True)
+    last_valleys = detect_peaks(
+        last_rsis, mpd=8, mph=70, edge=None, valley=True, kpsh=True)
+    last_dx_peaks = detect_peaks(last_adxs, mpd=8, edge=None)
+    last_dx_valleys = detect_peaks(last_adxs, mpd=8, edge=None, valley=True)
 
     
     if wait_for_confirmation:
         """
+        ## Strategy ideas note:
+        ## Use RSI peaks data:
+        ## if signal is right after a peak, compute:
+        ##     - wich signal type (some signal may be promiscuous
+        ##           some can only be buy/sell)
+        ##        after identify promiscuous signal:
+        ##        - if it's a valley buy
+        ##        - if it's a peak sell
+        ##     - Additionally evaluate previous peaks
+        ##       compute divergence to evaluate future direction 
+        ##           (and block/unblock the trade)
+
         if position_manager.has_position:
             # resolve sell signals
             sell_0 = get_signal_from_dict(0, b)
@@ -377,132 +334,9 @@ def handler_main(state, data, amount):
             buy_5 = get_signal_from_dict(5, a)
 
         """
-        if sell_signal_wait and position_manager.check_if_waiting():
-        #if  position_manager.check_if_waiting():
-
-            # adx_up = adx - adx_data.select("dx")[-2] > 0
-            # atr_up = atr - atr_data.select("atr")[-2] > 0
-            # rsi_rising = rsi1.last < rsi.last and rsi1.last > rsi1.select("ema")[-3]
-            # rsi_landing = rsi1.last > rsi.last and rsi1.last < rsi1.select("ema")[-3]            
-            wating_data, wating_message = position_manager.waiting_data()
-            # if adx > 25 and adx_up != atr_up:
-            #     if wating_data == "buy_adx" and not position_manager.has_position:
-            #         buy_signal = True
-            #         position_manager.stop_waiting()
-            #     elif wating_data == "sell_adx":
-            #         sell_signal = True
-            #         position_manager.stop_waiting()
-
-            if wating_data == "buy":
-                position_manager.stop_waiting()
-        else:
-            if buy_signal_wait:
-                try:
-                    buy_5 = a["5"]
-                except KeyError:
-                    buy_5 = False
-                if a["0"] or buy_5:
-                    position_manager.start_waiting("buy_adx", "waiting ADX/ATR confirmation")
-                else:
-                    position_manager.start_waiting("buy_adx", "waiting ADX/ATR confirmation")
-                    #buy_signal = buy_signal_wait
-            if sell_signal_wait:
-                if False:
-                    position_manager.start_waiting("sell_adx", "waiting ADX/ATR confirmation")
-                else:
-                    position_manager.start_waiting("sell_adx", "waiting ADX/ATR confirmation")
-                    #sell_signal = sell_signal_wait
-        if 5 in signals_mode:
-            buy_5 = a["5"]
-            if a["0"]:
-                buy_signal_wait = False
-        else:
-            buy_5 = False        
-        if (buy_5 or a["0"]) and buy_signal_wait and not position_manager.has_position:
-            position_manager.start_waiting("buy", "waiting RSI confirmation")
-        elif adx > 25:
-            if a["0"] and buy_signal_wait and not position_manager.has_position:
-                position_manager.start_waiting("buy", "waiting RSI confirmation")
-            else:
-                buy_signal = buy_signal_wait
-            #if current_price > bbands_upper and position_manager.has_position:
-            if b["0"] and sell_signal_wait and position_manager.has_position:
-                position_manager.start_waiting("sell", "waiting RSI confirmation")
-            else:
-                sell_signal = sell_signal_wait
-        else:
-            if buy_signal_wait:
-                position_manager.start_waiting("buy_2", "waiting RSI confirmation")
-            buy_signal = buy_signal_wait
-            sell_signal = sell_signal_wait
-
-        # if buy_signal_wait and not position_manager.has_position:
-        #      position_manager.start_waiting("buy", "waiting RSI confirmation")
-        # else:
-        #     buy_signal = buy_signal_wait
-        # #if current_price > bbands_upper and position_manager.has_position:
-        # if sell_signal_wait and position_manager.has_position:
-        #      position_manager.start_waiting("sell", "waiting RSI confirmation")
-        # else:
-        #     sell_signal = sell_signal_wait
-
-        if adx > 25:
-            rsi_levels = [30, 70]
-        else:
-            rsi_levels = [40, 60]
-
-        rsi_cross_under = cross_under(rsi.select("ema")[-2:], rsi1.select("ema")[-2:])
-        rsi_cross_over = cross_over(rsi.select("ema")[-2:], rsi1.select("ema")[-2:])
-
-        ## RSI rising:
-        # rsi_rising = rsi1.last < rsi.last and rsi1.last > rsi1.select("ema")[-3] #and rsi1.select("ema")[-3] < rsi_levels[0]
-        ## RSI landing:
-        # rsi_landing = rsi1.last > rsi.last and rsi1.last < rsi1.select("ema")[-3] #and rsi1.select("ema")[-3] > rsi_levels[1]
-        rsi_rising = rsi_cross_over #and rsi1.select("ema")[-3] < rsi_levels[0]
-        ## RSI landing:
-        rsi_landing = rsi_cross_under #and rsi1.select("ema")[-3] > rsi_levels[1]
-        # rsi_rising = rsi1.last > rsi1.select("ema")[-3]
-        # rsi_landing = rsi1.last < rsi1.select("ema")[-3]
-        both_rsi_up = rsi1.last > rsi1.select("ema")[-2] and rsi.last > rsi.select("ema")[-2]
-
-
-        if rsi_rising and position_manager.check_if_waiting():
-            wating_data, wating_message = position_manager.waiting_data()
-            if wating_data == "buy":
-                buy_signal = True
-                position_manager.stop_waiting()
-        if both_rsi_up and position_manager.check_if_waiting():
-            wating_data, wating_message = position_manager.waiting_data()
-            if wating_data == "buy_2":
-                buy_signal = True
-                position_manager.stop_waiting()
-        if rsi_landing and position_manager.check_if_waiting():
-            wating_data, wating_message = position_manager.waiting_data()
-            if wating_data == "sell":
-                sell_signal = True
-                position_manager.stop_waiting()
     else:
         buy_signal = buy_signal_wait
         sell_signal = sell_signal_wait
-    stop_rsi = False
-    stop_dx = False
-
-    if peaks_diff(last_rsis[last_valleys], 5) < 0:
-        stop_rsi = True
-    if peaks_diff(last_rsis[last_peaks], 5) < 0:
-        stop_rsi = True
-
-
-
-    """
-    if (len(last_dx_peaks) > 2 and last_adxs[last_dx_peaks][-1] < last_adxs[last_dx_peaks][-2]):
-        sell_signal = True
-        stop_dx = True
-    else:
-        sell_signal = False
-    if state.zero_signal_timer[symbol] >= max_candels_with_0_signals:
-        sell_signal = True
-    """
 
     state.bbres_prev[symbol] = bb_res
     if buy_with_ema45:
@@ -528,7 +362,7 @@ def handler_main(state, data, amount):
             plot("rsi_valley", last_rsis[last_valleys][-1])
 
     with PlotScope.group("adx", position_manager.symbol):
-        plot("adx", adx)
+        plot("adx", adx_data.select("dx")[-1])
         if len(last_dx_peaks) > 0:
             plot("adx_peaks", last_adxs[last_dx_peaks][-1])
         if len(last_dx_valleys) > 0:
@@ -583,8 +417,7 @@ def handler_main(state, data, amount):
         except Exception:
             pass
 
-    if (semaphores[1] == "red" or semaphores[0] == "red" or stop_rsi or stop_dx) and not position_manager.has_position and use_semaphore:
-    #if (stop_rsi or stop_dx) and not position_manager.has_position:
+    if (semaphores[1] == "red" or semaphores[0] == "red") and not position_manager.has_position and use_semaphore:
         semaphore_msg_close = (
             "The %s %s MACD histogram showing downtrend: "
             "stopping the strategy from buying "
@@ -686,10 +519,17 @@ class PositionManager:
             self.position_data = state.positions_manager[self.symbol]["data"]
         if self.has_position:
             self.position_data["position"] = position
+            if self.position_data["buy_order"] is None:
+                # Potential manual buy or existing positions
+                # when the bot was started
+                order_id = self.position_data["position"].order_ids[-1]
+                self.position_data["buy_order"] = query_order(order_id)
+
         #TODO self.check_if_waiting()
         #TODO self.check_if_pending()
         if not self.has_position and (not self.is_pending or not self.check_if_waiting()):
             if self.position_data["buy_order"] is not None:
+                self.cancel_stop_orders()
                 try:
                     closed_position = self.position_data["position"]
                 except KeyError:
@@ -741,11 +581,15 @@ class PositionManager:
             #self.__update_state__()
         else:
             print("Buy order already placed")
-    
+        if self.check_if_waiting():
+            self.stop_waiting()
+
     def close_market(self):
         if self.has_position:
             close_position(self.symbol)
             self.cancel_stop_orders()
+        if self.check_if_waiting():
+            self.stop_waiting()
 
     def double_barrier(self, take_profit, stop_loss, subtract_fees=False):
         try:
@@ -785,6 +629,18 @@ class PositionManager:
             take_profit.refresh()
             if take_profit.is_filled():
                 return {"side": "take_profit", "order": take_profit}
+
+    def is_stop_placed(self):
+        try:
+            stop_orders = self.position_data["stop_orders"]
+            stop_loss = stop_orders["order_lower"]
+            take_profit = stop_orders["order_upper"]
+        except KeyError:
+            return False
+        if stop_loss is None and take_profit is None:
+            return False
+        else:
+            return True
 
     def update_double_barrier(self, current_price, take_profit=None, stop_loss=None, subtract_fees=False):
         if take_profit is None:
