@@ -1,8 +1,6 @@
 import numpy as np
 from datetime import datetime
 
-
-
 TITLE = "Multicoin Bollinger Bands with ADX and RSI convergence"
 VERSION = "2.1"
 ALIAS = "BB_rsi_cov"
@@ -16,6 +14,7 @@ INTERVAL = "15m"
 
 SYMBOLS = [
     "BTCUSDT", "BTCDOWNUSDT"]
+#    "BTCUPUSDT", "BTCDOWNUSDT"]
 
 def initialize(state):
     state.last_rsi = {}
@@ -23,15 +22,14 @@ def initialize(state):
     state.params = {}
     state.params["DEFAULT"] = {
         "min_adx_from_peaks": True,
-        "max_loss_percent": None,
+        "max_loss_percent": 0.08,
         "adx_period": 14,
         "rsi_period": 4,
         "rsi_smooth": 4,
-        "max_loss_percent": None,
         "atr_stop_loss_n": 4,
         "atr_take_profit_n": 6}
     state.params["BTCUSDT"] = {
-        "min_adx_from_peaks": True,
+        "min_adx_from_peaks": False,
         "max_loss_percent": 0.08
     }
     state.params["BTCDOWNUSDT"] = {
@@ -90,7 +88,7 @@ def handler_main(state, data, amount):
 
     bbands = data.bbands(20, 2)
     rsi1 = data.close.rsi(rsi_period).ema(rsi_smooth)
-    #rsi1 = data.close.rsi(6)
+    #rsi1 = data.close.rsi(rsi_period)
     ema30 = data.ema(30).last
     ema25 = data.ema(25).last
     atr = data.atr(14).last
@@ -155,7 +153,6 @@ def handler_main(state, data, amount):
 
     ema30_above_mid_band = ema30 > bbands_middle
     ema25_above_mid_band = ema25 > bbands_middle
-
 
     last_peaks = detect_peaks(
         last_rsis, mpd=8, edge=None, kpsh=True)
@@ -234,8 +231,6 @@ def handler_main(state, data, amount):
     #     if wating_data == "buy":
     #          position_manager.stop_waiting()
 
-    if price_close_lower_band and ema30_above_mid_band and not position_manager.has_position:
-         position_manager.start_waiting("rsi_convergence", "waiting ADX confirmation")
 
     if price_above_upper_band and adx < last_peak_adx and position_manager.has_position:
          sell_signal = True
@@ -243,12 +238,21 @@ def handler_main(state, data, amount):
          position_manager.stop_waiting()
          position_manager.start_waiting("sell", "waiting RSI confirmation")
 
+    if price_close_lower_band and ema30_above_mid_band and not position_manager.has_position:
+         position_manager.start_waiting("rsi_convergence", "waiting ADX confirmation")
+
+    # if price_below_lower_band and not ema30_above_mid_band and not position_manager.has_position:
+    #      position_manager.stop_waiting()
+
     if rsi_convergence and position_manager.check_if_waiting():
         wating_data, wating_message = position_manager.waiting_data()
         if wating_data == "rsi_convergence":
             position_manager.start_waiting("adx_convergence", "waiting RSI confirmation")
             #position_manager.stop_waiting()
-    if adx_convergence and position_manager.check_if_waiting():
+    if adx_convergence and len(
+        last_rsis_peak_values) > 0 and last_rsis_peak_values[
+            -1] > last_rsis[-1] and position_manager.check_if_waiting():
+    # if adx_convergence and position_manager.check_if_waiting():
         wating_data, wating_message = position_manager.waiting_data()
         if wating_data == "adx_convergence":
             buy_signal = True
@@ -257,6 +261,34 @@ def handler_main(state, data, amount):
         wating_data, wating_message = position_manager.waiting_data()
         if wating_data == "adx_convergence":
             position_manager.start_waiting("rsi_convergence", "waiting ADX confirmation")
+
+    # if position_manager.check_if_waiting():
+    #     wating_data, wating_message = position_manager.waiting_data()
+    #     print("%s %s %s" % (position_manager.symbol, wating_data, wating_message))
+
+    """
+
+    if price_close_lower_band and ema30_above_mid_band and not position_manager.has_position:
+         position_manager.start_waiting("adx_convergence", "waiting ADX confirmation")
+
+    if rsi_convergence and last_rsis_peak_values[-1] > last_rsis[-1] and position_manager.check_if_waiting():
+        wating_data, wating_message = position_manager.waiting_data()
+        if wating_data == "rsi_convergence":
+            buy_signal = True
+            position_manager.stop_waiting()
+
+    if adx_convergence and position_manager.check_if_waiting():
+        wating_data, wating_message = position_manager.waiting_data()
+        if wating_data == "adx_convergence":
+            position_manager.start_waiting("rsi_convergence", "waiting RSI confirmation")
+            #position_manager.stop_waiting()
+
+    if (rsi_divergence or adx_divergence) and position_manager.check_if_waiting():
+        wating_data, wating_message = position_manager.waiting_data()
+        if wating_data == "adx_convergence":
+            position_manager.start_waiting("adx_convergence", "waiting ADX confirmation")
+    """
+
     if (rsi_descending and adx_descending) and position_manager.check_if_waiting():
         wating_data, wating_message = position_manager.waiting_data()
         if wating_data == "sell":
