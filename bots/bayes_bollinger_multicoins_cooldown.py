@@ -2,12 +2,11 @@
 ##| BAYESIAN BBANDS | 15m                                             |
 ##+------------------------------------------------------------------+
 
-SYMBOLS_1 = "NANOUSDT"
+SYMBOLS_1 = "LUNAUSDT"
 SYMBOLS1 = ["VITEUSDT", "MATICUSDT", "RUNEUSDT", "ZILUSDT", "1INCHUSDT"]
 SYMBOLS2 = ["LUNAUSDT", "COCOSUSDT", "NKNUSDT", "NEOUSDT", "NANOUSDT"]
-#SYMBOLS3 = ["MIRUSDT", "ZRXUSDT", "MANAUSDT", "CLVUSDT", "ALGOUSDT"]
+#SYMBOLS3 = ["MIRUSDT", "ZRXUSDT""MANAUSDT", "CLVUSDT", "ALGOUSDT"]
 SYMBOLS3 = ["BNBUSDT"]
-
 
 
 ### TODO
@@ -23,12 +22,24 @@ SYMBOLS3 = ["BNBUSDT"]
 # 24.08.2021-22:00:00> 1INCHUSDT winning positions 57/95, realized pnl: 647.681
 # 24.08.2021-22:00:00> NKNUSDT winning positions 66/109, realized pnl: 912.231
 # 24.08.2021-22:00:00> NEOUSDT winning positions 65/103, realized pnl: 724.964
+# 24.08.2021-22:00:00> NANOUSDT winning positions 50/96, realized pnl: -88.331
+# 24.08.2021-22:00:00> RUNEUSDT winning positions 56/93, realized pnl: 1971.343
+# 24.08.2021-22:00:00> ZILUSDT winning positions 68/112, realized pnl: 735.102
+# 24.08.2021-22:00:00> COCOSUSDT winning positions 53/88, realized pnl: 1211.550
+# 24.08.2021-22:00:00> LUNAUSDT winning positions 56/106, realized pnl: 522.449
 # no sign 4
 # 24.08.2021-22:00:00> MATICUSDT winning positions 39/62, realized pnl: 1179.623
 # 24.08.2021-22:00:00> VITEUSDT winning positions 54/82, realized pnl: -90.757
 # 24.08.2021-22:00:00> 1INCHUSDT winning positions 43/63, realized pnl: 533.549
 # 24.08.2021-22:00:00> NKNUSDT winning positions 35/60, realized pnl: 326.310
 # 24.08.2021-22:00:00> NEOUSDT winning positions 48/75, realized pnl: 320.360
+# signals 3 and 4
+# 24.08.2021-22:00:00> RUNEUSDT winning positions 61/120, realized pnl: 2446.344
+# 24.08.2021-22:00:00> VITEUSDT winning positions 75/144, realized pnl: -40.648
+# 24.08.2021-22:00:00> ZILUSDT winning positions 73/143, realized pnl: 501.257
+# 24.08.2021-22:00:00> COCOSUSDT winning positions 64/130, realized pnl: 1076.185
+# 24.08.2021-22:00:00> LUNAUSDT winning positions 59/144, realized pnl: 241.610
+
 
 INTERVAL = "15m"
 
@@ -118,9 +129,9 @@ def initialize(state):
     state.params["CLVUSDT"] = {
         "signals_mode": [1, 3, 4, 5]
     }
-    # state.params["VITEUSDT"] = {
-    #     "signals_mode": [1, 3, 4, 5]
-    # }
+    state.params["VITEUSDT"] = {
+        "signals_mode": [1, 3, 4, 5]
+    }
 
 ##+------------------------------------------------------------------+
 ##| SYMBOL                                                           |
@@ -152,7 +163,7 @@ def handler1(state, data):
 ##+------------------------------------------------------------------+
 
 
-@schedule(interval=INTERVAL, symbol=SYMBOLS3, window_size=200)
+#@schedule(interval=INTERVAL, symbol=SYMBOLS3, window_size=200)
 def handler2(state, data):
     portfolio = query_portfolio()
     if FIX_BUY_AMOUNT is None:
@@ -1186,7 +1197,9 @@ class PositionManager:
 
     def close_market(self):
         if self.has_position:
-            close_position(self.symbol)
+            #close_position(self.symbol)
+            amount = self.position_amount()
+            order_market_amount(self.symbol,-1 * subtract_order_fees(amount))
             self.cancel_stop_orders()
         # if self.check_if_waiting():
         #     self.stop_waiting()
