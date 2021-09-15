@@ -2,11 +2,11 @@
 ##| BAYESIAN BBANDS | 15m                                             |
 ##+------------------------------------------------------------------+
 
-SYMBOLS_1 = "LUNAUSDT"
+SYMBOLS_1 = "EGLDUSDT"
 SYMBOLS1 = ["VITEUSDT", "MATICUSDT", "RUNEUSDT", "ZILUSDT", "1INCHUSDT"]
-SYMBOLS2 = ["LUNAUSDT", "COCOSUSDT", "NKNUSDT", "NEOUSDT", "NANOUSDT"]
-#SYMBOLS3 = ["MIRUSDT", "ZRXUSDT""MANAUSDT", "CLVUSDT", "ALGOUSDT"]
-SYMBOLS3 = ["BNBUSDT"]
+SYMBOLS3 = ["LUNAUSDT", "COCOSUSDT", "NKNUSDT", "NEOUSDT", "NANOUSDT"]
+#SYMBOLS2 = ["MIRUSDT", "ZRXUSDT", "MANAUSDT", "CLVUSDT", "ALGOUSDT", "BNBUSDT"]
+SYMBOLS2 = ["MANAUSDT", "IRISUSDT", "BNBUSDT"]
 
 
 ### TODO
@@ -27,6 +27,8 @@ SYMBOLS3 = ["BNBUSDT"]
 # 24.08.2021-22:00:00> ZILUSDT winning positions 68/112, realized pnl: 735.102
 # 24.08.2021-22:00:00> COCOSUSDT winning positions 53/88, realized pnl: 1211.550
 # 24.08.2021-22:00:00> LUNAUSDT winning positions 56/106, realized pnl: 522.449
+# 24.08.2021-22:00:00> IRISUSDT winning positions 66/106, realized pnl: 1001.146
+
 # no sign 4
 # 24.08.2021-22:00:00> MATICUSDT winning positions 39/62, realized pnl: 1179.623
 # 24.08.2021-22:00:00> VITEUSDT winning positions 54/82, realized pnl: -90.757
@@ -43,7 +45,7 @@ SYMBOLS3 = ["BNBUSDT"]
 
 INTERVAL = "15m"
 
-N_SYMBOLS = 10                  # Define how many symbols we are trading
+N_SYMBOLS = 12                  # Define how many symbols we are trading
                                 # in all handlers combined
 
 LEVERAGE =  2                   # Multiply the amount for a given number
@@ -163,7 +165,7 @@ def handler1(state, data):
 ##+------------------------------------------------------------------+
 
 
-#@schedule(interval=INTERVAL, symbol=SYMBOLS3, window_size=200)
+@schedule(interval=INTERVAL, symbol=SYMBOLS3, window_size=200)
 def handler2(state, data):
     portfolio = query_portfolio()
     if FIX_BUY_AMOUNT is None:
@@ -406,8 +408,7 @@ def handler_main(state, data, amount):
     bbands_above_keltner_up = bbands.select(
         'bbands_upper')[-1] > kbands['high'][-1]
     bbands_below_keltner_low = bbands.select(
-        'bbands_lower')[-1] < kbands['low'][-1]
-
+        'bbands_lower')[-1] < kbands['low'][-1] 
 
 
     if past_r1 and past_r1 < r1 and current_price > kbands["high"][-1] and bbands_above_keltner_up:
@@ -1197,9 +1198,9 @@ class PositionManager:
 
     def close_market(self):
         if self.has_position:
-            #close_position(self.symbol)
-            amount = self.position_amount()
-            order_market_amount(self.symbol,-1 * subtract_order_fees(amount))
+            close_position(self.symbol)
+            #amount = self.position_amount()
+            #order_market_amount(self.symbol,-1 * subtract_order_fees(amount))
             self.cancel_stop_orders()
         # if self.check_if_waiting():
         #     self.stop_waiting()
@@ -1212,6 +1213,7 @@ class PositionManager:
                 "order_upper": None, "order_lower": None}
         if stop_orders["order_upper"] is None:
             amount = self.position_amount()
+            #amount = self.position_exposure()
             if amount is None:
                 print("No amount to sell in position")
                 return
