@@ -2,11 +2,12 @@
 ##| BAYESIAN BBANDS | 15m                                             |
 ##+------------------------------------------------------------------+
 
-SYMBOLS_1 = "EGLDUSDT"
+SYMBOLS_1 = "MATICUSDT"
 SYMBOLS1 = ["VITEUSDT", "MATICUSDT", "RUNEUSDT", "ZILUSDT", "1INCHUSDT"]
 SYMBOLS3 = ["LUNAUSDT", "COCOSUSDT", "NKNUSDT", "NEOUSDT", "NANOUSDT"]
 #SYMBOLS2 = ["MIRUSDT", "ZRXUSDT", "MANAUSDT", "CLVUSDT", "ALGOUSDT", "BNBUSDT"]
-SYMBOLS2 = ["MANAUSDT", "IRISUSDT", "BNBUSDT"]
+SYMBOLS2 = ["MANAUSDT", "IRISUSDT", "GTOUSDT", "BNBUSDT"]
+
 
 
 ### TODO
@@ -28,6 +29,10 @@ SYMBOLS2 = ["MANAUSDT", "IRISUSDT", "BNBUSDT"]
 # 24.08.2021-22:00:00> COCOSUSDT winning positions 53/88, realized pnl: 1211.550
 # 24.08.2021-22:00:00> LUNAUSDT winning positions 56/106, realized pnl: 522.449
 # 24.08.2021-22:00:00> IRISUSDT winning positions 66/106, realized pnl: 1001.146
+# 24.08.2021-22:00:00> GTOUSDT winning positions 70/101, realized pnl: 1285.166
+# 24.08.2021-22:00:00> REEFUSDT winning positions 64/109, realized pnl: 697.124
+# 24.08.2021-22:00:00> REPUSDT winning positions 71/109, realized pnl: 347.365
+# 24.08.2021-22:00:00> MIRUSDT winning positions 43/77, realized pnl: 729.934
 
 # no sign 4
 # 24.08.2021-22:00:00> MATICUSDT winning positions 39/62, realized pnl: 1179.623
@@ -41,11 +46,17 @@ SYMBOLS2 = ["MANAUSDT", "IRISUSDT", "BNBUSDT"]
 # 24.08.2021-22:00:00> ZILUSDT winning positions 73/143, realized pnl: 501.257
 # 24.08.2021-22:00:00> COCOSUSDT winning positions 64/130, realized pnl: 1076.185
 # 24.08.2021-22:00:00> LUNAUSDT winning positions 59/144, realized pnl: 241.610
+# 24.08.2021-22:00:00> GTOUSDT winning positions 82/138, realized pnl: 1298.218
+# 24.08.2021-22:00:00> IRISUSDT winning positions 73/141, realized pnl: 148.973
+# 24.08.2021-22:00:00> MIRUSDT winning positions 55/108, realized pnl: 1017.297
 
+# with pivot point filter
+# 24.08.2021-22:00:00> MATICUSDT winning positions 46/67, realized pnl: 1333.117
+# 24.08.2021-22:00:00> VITEUSDT winning positions 50/102, realized pnl: -186.608
 
 INTERVAL = "15m"
 
-N_SYMBOLS = 12                  # Define how many symbols we are trading
+N_SYMBOLS = 13                  # Define how many symbols we are trading
                                 # in all handlers combined
 
 LEVERAGE =  2                   # Multiply the amount for a given number
@@ -67,14 +78,14 @@ ATR_TAKE_PROFIT = 6	            # A multiplier on the ATR value (e.g. 4)
 ATR_STOP_LOSS = 6               # A multiplier on the ATR value (e.g. 6)
 COLLECT_DATA = False            # if True a python dictionary with the trade data
                                 # is printed at the end of each day
-SIGNALS = [1, 4, 5]                # Signal to include, possible number 1, 2, 3, 4, 5
+SIGNALS = [1, 4, 5]             # Signal to include, possible number 1, 2, 3, 4, 5
                                 # Suggested values [1, 5]. For high volatile symbols [1, 3, 4, 5]
 
 
 import numpy as np
 from numpy import greater, less, sum, nan_to_num, exp
 from datetime import datetime
-from trality.indicator import mfi, ema
+from trality.indicator import mfi, macd, ema, atr
 
 ##+------------------------------------------------------------------+
 ##| Settings in state (could set different tp/sl for each symbol)    |
@@ -104,31 +115,30 @@ def initialize(state):
         "bayes_period": 20,
         "keltner_filter": True,
         "ema_filter": True,
-        "multistrategy": True,
         "keep_signal": 10,
         "use_cooldown": True,
         "max_candels_with_0_signals": 24,
         "signals_mode": SIGNALS,
         "collect_data": COLLECT_DATA}
-    state.params["RUNEUSDT"] = {
-        "signals_mode": [1, 3, 4, 5]
-    }
-    state.params["ZILUSDT"] = {
-        "signals_mode": [1, 3, 4, 5]
-    }
-    state.params["EGLDUSDT"] = {
-        "signals_mode": [1, 3, 4, 5]
-    }
-    state.params["COCOSUSDT"] = {
-        "signals_mode": [1, 3, 4, 5]
-    }
-    state.params["LUNAUSDT"] = {
-        "signals_mode": [1, 3, 4, 5]
-    }
+    # state.params["RUNEUSDT"] = {
+    #     "signals_mode": [1, 3, 4, 5]
+    # }
+    # state.params["ZILUSDT"] = {
+    #     "signals_mode": [1, 3, 4, 5]
+    # }
+    # state.params["EGLDUSDT"] = {
+    #     "signals_mode": [1, 3, 4, 5]
+    # }
+    # state.params["GTOUSDT"] = {
+    #     "signals_mode": [1, 3, 4, 5]
+    # }
+    # state.params["LUNAUSDT"] = {
+    #     "signals_mode": [1, 3, 4, 5]
+    # }
+    # state.params["COCOSUSDT"] = {
+    #     "signals_mode": [1, 3, 4, 5]
+    # }
     state.params["MIRUSDT"] = {
-        "signals_mode": [1, 3, 4, 5]
-    }
-    state.params["CLVUSDT"] = {
         "signals_mode": [1, 3, 4, 5]
     }
     state.params["VITEUSDT"] = {
@@ -217,7 +227,7 @@ def handler3(state, data):
 #### Waiting Functions
 
 
-def signal_no_wait(position_manager, trade_data, indicators_data):
+def signal_no_wait(position_manager, trade_data, indicators_data):  
     position_manager.stop_waiting()
     return True
 
@@ -234,7 +244,7 @@ def signal_sell_cci(position_manager, trade_data, indicators_data):
     signal = False
     adx = indicators_data["adx"]["data"]
     cci = indicators_data["cci"]["data"]
-    if adx[-1] < 25 or cci[-1] < 100:
+    if (adx[-1] < 25 or cci[-1] < 100) or cci[-1] > 250:
         signal = True
         position_manager.stop_waiting()
     return signal
@@ -277,7 +287,6 @@ def handler_main(state, data, amount):
 
     keltner_filter = params["keltner_filter"]
     ema_filter = params["ema_filter"]
-    multistrategy = params["multistrategy"]
     keep_signal = params["keep_signal"]
     use_cooldown = params["use_cooldown"]
     lift_sl = True
@@ -341,12 +350,24 @@ def handler_main(state, data, amount):
                 state.past_daily_candles[symbol] = past_daily_candles
 
     yesterday_levels = compute_daily_levels(yesterday_candle)
+
     r1 = yesterday_levels["resistance1"]
     s1 = yesterday_levels["support1"]
+    pivot = yesterday_levels["pivot"]
+
+    # yesterday_levels_cmr = compute_daily_levels_camarilla(yesterday_candle)
+    # r1_cmr = yesterday_levels_cmr["resistance1"]
+    # s1_cmr = yesterday_levels_cmr["support1"]
+    # r2_cmr = yesterday_levels_cmr["resistance2"]
+    # s2_cmr = yesterday_levels_cmr["support2"]
+    # r3_cmr = yesterday_levels_cmr["resistance3"]
+    # s3_cmr = yesterday_levels_cmr["support3"]
+    # r4_cmr = yesterday_levels_cmr["resistance4"]
+    # s4_cmr = yesterday_levels_cmr["support4"]
 
     if before_yesterday_candle:
-        pp2 = (before_yesterday_candle["high"] +before_yesterday_candle["low"] + before_yesterday_candle["close"]) / 3
-        past_r1 = 2 * pp2 - before_yesterday_candle["low"]
+        before_yesterday_levels = compute_daily_levels(before_yesterday_candle)
+        past_r1 = before_yesterday_levels["resistance1"]
     else:
         past_r1 = None
 
@@ -391,17 +412,34 @@ def handler_main(state, data, amount):
 
     h_hlcv_array = np.asarray((
         h_high, h_low, h_close, h_volume), dtype=np.float32)
-
+    h_hlc_array = np.asarray((
+        h_high, h_low, h_close), dtype=np.float32)
+    h_close_array = np.asarray(h_close, dtype=np.float32)
+    if len(h_close) >  26:
+        macd_1h = macd(h_close_array, 12, 26, 9)
+    else:
+        macd_1h = [[None], [None], [None]]
     mfi_1h_period = 48
+    mfi_1h_long_period = 72
+    # if len(h_close) > mfi_1h_long_period:
+    #     kbands_1h = keltner_channels2(h_hlc_array, mfi_1h_long_period, mfi_1h_long_period, 4)
+    #     mfi_1h_long = mfi(h_hlcv_array, mfi_1h_long_period)[0]
+    # else:
+    #     mfi_1h_long = [None]
+    #     kbands_1h = {'middle': [None], 'high': [None], 'low': [None]}
+    mfi_1h_long = [None]
+    kbands_1h = {'middle': [None], 'high': [None], 'low': [None]}
     if len(h_close) >  mfi_1h_period * 2:
         mfi_1h = mfi(h_hlcv_array, mfi_1h_period)[0]
     else:
         mfi_1h = [None]
 
     min_mfi = 30
+    min_mfi_long = 40
 
 
     last_closes = data.close.select("close")[-take_last:]
+    last_lows = data.low.select("low")[-take_last:]
     last_ccis = cci_data.select("cci")[-take_last:]
     last_adxs = adx_data.select("dx")[-take_last:]
 
@@ -421,6 +459,11 @@ def handler_main(state, data, amount):
 
     if data.close.select("close")[-2] < kbands["low"][-2] and current_price > kbands["low"][-1] and bbands_below_keltner_low:
         state.cooldown[symbol] = False
+
+    # if data.close.select("close")[-2] < bbands.select(
+    #     'bbands_lower')[-2] and current_price > bbands.select(
+    #         'bbands_lower')[-1] and current_price > s1:
+    #     state.cooldown[symbol] = False
     
     cooldown =  state.cooldown[symbol]
     if not use_cooldown:
@@ -504,6 +547,9 @@ def handler_main(state, data, amount):
         },
         "close": {
             "data": last_closes.tolist()[-5:]
+        },
+        "low": {
+            "data": last_lows.tolist()[-5:]
         },
         "cross": {
             "long": ema_long_data.select("ema").tolist()[-5:],
@@ -591,6 +637,9 @@ def handler_main(state, data, amount):
                     current_price,
                     stop_loss=price_to_percent(
                         current_price, mid_low_point))
+                # position_manager.update_double_barrier_price(
+                #     current_price,
+                #     stop_loss_price=mid_low_point)
 
     #--------------------------------------------#
     # Feedback on PnL and data collection prints #
@@ -692,8 +741,10 @@ def handler_main(state, data, amount):
     """
     Filter using keltner channels
     """
+    keltner_filter_on = False
     if keltner_filter:
         if bbands_above_keltner_up and bbands_below_keltner_low:
+            #keltner_filter_on = True
             buy_signal_wait = False
 
     """
@@ -710,7 +761,13 @@ def handler_main(state, data, amount):
     if not ema_filter_override and ema_filter:
         if buy_signal_wait and ema_long > ema_short:
             buy_signal_wait = False
-  
+
+    # """
+    # Filter signals in a bearish-ranging region
+    # """ 
+    # if current_price < pivot and current_price > s1:
+    #     buy_signal_wait = False
+
     """
     Filter buy orders when long mfi gives too much
     oversold signal
@@ -719,6 +776,9 @@ def handler_main(state, data, amount):
         if mfi_1h[-1] < min_mfi:
             buy_signal_wait = False
 
+    if mfi_1h_long[-1]:
+        if mfi_1h_long[-1] < min_mfi_long:
+            buy_signal_wait = False
     """
     Filter sell orders when break up
     """
@@ -731,6 +791,20 @@ def handler_main(state, data, amount):
     """
     if sell_signal_wait:
         buy_signal_wait = False
+
+    # if len(macd_1h) == 3:
+    #     if macd_1h[0][-1]:
+    #         if (macd_1h[2][-1] < macd_1h[2][-2] and macd_1h[2][-1] > 0):
+    #             if keltner_filter_on:
+    #                 buy_signal_wait = False
+    #     elif keltner_filter_on:
+    #         buy_signal_wait = False
+
+    # if len(macd_1h) == 3:
+    #     if macd_1h[0][-1]:
+    #         if macd_1h[0][-1] < 0.001:
+    #             buy_signal_wait = False
+
 
     """
     Start the wait/check/stop process
@@ -761,41 +835,37 @@ def handler_main(state, data, amount):
         trade_data = default_trade_data
 
 
-    if multistrategy:
-        """
-        Reset the trade data when a new signal pops up
-        """
-        if  not position_manager.has_position and buy_signal_wait :
-            trade_data = default_trade_data
-            trade_data["status"] = "buying"
-            if buy_0:
-                trade_data["signal_type"] = 0
-            elif buy_1:
-                trade_data["signal_type"] = 1
-            elif buy_5:
-                trade_data["signal_type"] = 5
-            elif buy_3:
-                trade_data["signal_type"] = 3
-            elif buy_4:
-                trade_data["signal_type"] = 4
-            position_manager.start_waiting(trade_data, "waiting to buy")
-        elif position_manager.has_position and sell_signal_wait:
-            trade_data = default_trade_data
-            trade_data["status"] = "selling"
-            if sell_0:
-                trade_data["signal_type"] = 0
-            elif sell_1:
-                trade_data["signal_type"] = 1
-            elif sell_5:
-                trade_data["signal_type"] = 5
-            elif sell_3:
-                trade_data["signal_type"] = 3
-            elif sell_4:
-                trade_data["signal_type"] = 4
-            position_manager.start_waiting(trade_data, "waiting to sell")
-    else:
-        buy_signal = buy_signal_wait
-        sell_signal = sell_signal_wait
+    """
+    Reset the trade data when a new signal pops up
+    """
+    if  not position_manager.has_position and buy_signal_wait :
+        trade_data = default_trade_data
+        trade_data["status"] = "buying"
+        if buy_0:
+            trade_data["signal_type"] = 0
+        elif buy_1:
+            trade_data["signal_type"] = 1
+        elif buy_5:
+            trade_data["signal_type"] = 5
+        elif buy_3:
+            trade_data["signal_type"] = 3
+        elif buy_4:
+            trade_data["signal_type"] = 4
+        position_manager.start_waiting(trade_data, "waiting to buy")
+    elif position_manager.has_position and sell_signal_wait:
+        trade_data = default_trade_data
+        trade_data["status"] = "selling"
+        if sell_0:
+            trade_data["signal_type"] = 0
+        elif sell_1:
+            trade_data["signal_type"] = 1
+        elif sell_5:
+            trade_data["signal_type"] = 5
+        elif sell_3:
+            trade_data["signal_type"] = 3
+        elif sell_4:
+            trade_data["signal_type"] = 4
+        position_manager.start_waiting(trade_data, "waiting to sell")
 
 
     """
@@ -848,6 +918,14 @@ def handler_main(state, data, amount):
                 balance_quoted * 0.95, update=True)
 
 
+    # is_rising = indicator_is_rising(
+    #     data.close.select('close'),
+    #      kbands['high'],
+    #     cci_data.select("cci"))
+    # if position_manager.has_position:
+    #     if is_rising[0] == False and is_rising[1] == -1:
+    #         sell_signal = True
+
     """
     Set a narrow stop loss if attempting to catch up the trend
     """
@@ -865,10 +943,16 @@ def handler_main(state, data, amount):
         plot("k_ema", kbands["middle"][-1])
         plot("k_upper", kbands["high"][-1])
         plot("k_lower", kbands["low"][-1])
+        if kbands_1h["middle"][0]:
+            plot("k_ema_1h", kbands_1h["middle"][-1])
+            plot("k_upper_1h", kbands_1h["high"][-1])
+            plot("k_lower_1h", kbands_1h["low"][-1])
+
 
     with PlotScope.root(symbol):
         plot("daily_resistance", r1)
         plot("daily_support", s1)
+        plot("pivot", pivot)
 
     try:
         tp_price = position_manager.position_data[
@@ -892,6 +976,16 @@ def handler_main(state, data, amount):
     with PlotScope.group("hourly_mf1", symbol):
         if mfi_1h[-1]:
             plot("mfi_1h", mfi_1h[-1])
+        if mfi_1h_long[-1]:
+            plot("mfi_1h_long", mfi_1h_long[-1])
+
+
+    with PlotScope.group("hourly_macd", symbol):
+        if len(macd_1h) == 3:
+            if macd_1h[0][-1]:
+                plot("macd", macd_1h[0][-1])
+                plot("macd_signal", macd_1h[1][-1])
+                plot("macd_hist", macd_1h[2][-1])
 
     with PlotScope.group("pnl", symbol):
         plot("pnl", float(state.positions_manager[
@@ -1229,6 +1323,30 @@ class PositionManager:
         else:
             print("Stop orders already exist")
 
+    def double_barrier_price(self, take_profit_price, stop_loss_price, subtract_fees=False):
+        try:
+            stop_orders = self.position_data["stop_orders"]
+        except KeyError:
+            stop_orders = {
+                "order_upper": None, "order_lower": None}
+        if stop_orders["order_upper"] is None:
+            amount = subtract_order_fees(self.position_amount())
+            #amount = self.position_exposure()
+            if amount is None:
+                print("No amount to sell in position")
+                return
+            with OrderScope.one_cancels_others():
+                stop_orders["order_upper"] = order_iftouched_market_amount(
+                    self.symbol, -1 * amount, take_profit_price)
+                stop_orders["order_lower"] = order_iftouched_market_amount(
+                    self.symbol, -1 * amount, stop_loss_price)
+            if stop_orders["order_upper"].status != OrderStatus.Pending:
+                errmsg = "make_double barrier failed with: {}"
+                raise ValueError(errmsg.format(stop_orders["order_upper"].error))
+            self.position_data["stop_orders"] = stop_orders
+        else:
+            print("Stop orders already exist")
+
     def is_stop_filled(self):
         try:
             stop_orders = self.position_data["stop_orders"]
@@ -1274,13 +1392,36 @@ class PositionManager:
                 order_lower_price = float(self.position_data[
                     "stop_orders"]["order_lower"].stop_price)
                 stop_loss = abs(
-                    order_lower__price - current_price) / current_price
+                    order_lower_price - current_price) / current_price
             except:
                 success = False
         if success:
             self.cancel_stop_orders()
             self.double_barrier(
                 take_profit, stop_loss, subtract_fees=subtract_fees)
+        else:
+            print("update stop limits failed")
+
+    def update_double_barrier_price(self, current_price, take_profit_price=None, stop_loss_price=None, subtract_fees=False):
+        success = True
+        if take_profit_price is None:
+            # keep upper as it is
+            try:
+                take_profit_price = float(self.position_data[
+                    "stop_orders"]["order_upper"].stop_price)
+            except:
+                success = False
+        if stop_loss_price is None:
+            # Keep low as it is
+            try:
+                stop_loss_price = float(self.position_data[
+                    "stop_orders"]["order_lower"].stop_price)
+            except:
+                success = False
+        if success:
+            self.cancel_stop_orders()
+            self.double_barrier_price(
+                take_profit_price, stop_loss_price, subtract_fees=subtract_fees)
         else:
             print("update stop limits failed")
 
@@ -1365,94 +1506,6 @@ class PositionManager:
         }
 
 
-def get_d(values, index, coef):
-    try:
-        d = sum(
-        [coef["center"]["coefficients"][x] * values[
-            index + coef["center"]["offsets"][x]] for x in range(
-                len(coef["center"]["coefficients"]))])
-    except IndexError:
-        d = 1
-    return d
-
-def compute_derivs(x):
-    coefficients_1_p4 = {
-        "center": {
-            "coefficients": [float(1/12), -float(2/3), 0, float(2/3), -float(1/12)],
-            "offsets": [-2, -1, 0, 1, 2]
-
-        },
-        "forward": {
-            "coefficients": [-float(25/12), 4, -3, float(4/3), -float(1/4)],
-            "offsets": [0, 1, 2, 3, 4]
-        },
-        "backward": {
-            "coefficients": [-float(1/3), float(3/2), -3, float(11/6)],
-            "offsets": [-3, -2, -1, 0]
-        }
-    }
-    coefficients_2_p4 = {
-        "center": {
-            "coefficients": [-float(1/12), float(4/3), -float(5/2), float(4/3), -float(1/12)],
-            "offsets": [-2, -1, 0, 1, 2]
-        },
-        "forward": {
-            "coefficients": [
-                float(15/4), -float(77/6), float(107/6), -13, float(61/12), -float(5/6)],
-            "offsets": [0, 1, 2, 3, 4, 5]
-        },
-        "backward": {
-            "coefficients": [ -1., 4., -5., 2.],
-            "offsets": [-3, -2, -1, 0]
-        }
-    }
-    coefficients_1 = {
-        "center": {
-            "coefficients": [-0.5, 0. , 0.5],
-            "offsets": [-1, 0, 1]
-        },
-        "forward": {
-            "coefficients": [-1.5, 2. , -0.5],
-            "offsets": [0, 1, 2]
-        },
-        "backward": {
-            "coefficients": [ 0.5, -2. , 1.5],
-            "offsets": [-2, -1, 0]
-        }
-    }
-    coefficients_2 = {
-        "center": {
-            "coefficients": [1, -2 , 1],
-            "offsets": [-1, 0, 1]
-        },
-        "forward": {
-            "coefficients": [2., -5., 4., -1.],
-            "offsets": [0, 1, 2, 3]
-        },
-        "backward": {
-            "coefficients": [ -1., 4., -5., 2.],
-            "offsets": [-3, -2, -1, 0]
-        }
-    }
-    d1 = [get_d(x, i, coefficients_1) for i in range(len(x))]
-    d2 = [get_d(x, i, coefficients_2) for i in range(len(x))]
-    return(d1, d2)
-
-def get_extrema(d1, d2, h, isMin):
-  return [x for x in range(len(d1))
-    if (d2[x] > 0 if isMin else d2[x] < 0) and
-      (d1[x] == 0 or #slope is 0
-        (x != len(d1) - 1 and #check next day
-          (d1[x] > 0 and d1[x+1] < 0 and
-           h[x] >= h[x+1] or
-           d1[x] < 0 and d1[x+1] > 0 and
-           h[x] <= h[x+1]) or
-         x != 0 and #check prior day
-          (d1[x-1] > 0 and d1[x] < 0 and
-           h[x-1] < h[x] or
-           d1[x-1] < 0 and d1[x] > 0 and
-           h[x-1] > h[x])))]
-
 def keltner_channels(data, period=20, atr_period=10, kc_mult=2, take_last=50):
     """
     calculate keltner channels mid, up and low values
@@ -1463,6 +1516,19 @@ def keltner_channels(data, period=20, atr_period=10, kc_mult=2, take_last=50):
     low = ema[-take_last:] - (kc_mult * atr[-take_last:])
     return {'middle': ema, 'high': high, 'low': low}
 
+
+def keltner_channels2(hloc, period=20, atr_period=10, kc_mult=2, take_last=50):
+    """
+    calculate keltner channels mid, up and low values
+    """
+    ema_k = ema(hloc[2], period)[0]
+    atr_k = atr(hloc, atr_period)[0]
+    atr_len = len(atr_k)
+    if atr_len < take_last:
+        take_last = atr_len
+    high = ema_k[-take_last:] + (kc_mult * atr_k[-take_last:])
+    low = ema_k[-take_last:] - (kc_mult * atr_k[-take_last:])
+    return {'middle': ema_k[-take_last:], 'high': high, 'low': low}
 
 def bbbayes(close, bayes_period, bb_upper, bb_basis, sma_values):
     prob_bb_upper_up_seq = greater(close[-bayes_period:],
@@ -1892,11 +1958,12 @@ def compute_daily_levels(yesterday_candle):
             "close"]) / 3
     resistance1 = 2 * pp - yesterday_candle["low"]
     support1 = 2 * pp - yesterday_candle["high"]
-    resistance2 = pp + (yesterday_candle["high"] -yesterday_candle["low"])
+    resistance2 = pp + (yesterday_candle["high"] - yesterday_candle["low"])
     support2 = pp - (yesterday_candle["high"] -yesterday_candle["low"])
-    resistance3 = pp + (2*(yesterday_candle["high"] -yesterday_candle["low"]))
-    support3 = pp - (2*(yesterday_candle["high"] -yesterday_candle["low"]))
+    resistance3 = pp + (2*(yesterday_candle["high"] - yesterday_candle["low"]))
+    support3 = pp - (2*(yesterday_candle["high"] - yesterday_candle["low"]))
     return ({
+        "pivot": pp,
         "resistance1": resistance1,
         "resistance2": resistance2,
         "resistance3": resistance3,
@@ -1904,6 +1971,29 @@ def compute_daily_levels(yesterday_candle):
         "support2": support2,
         "support3": support3
     })
+
+def compute_daily_levels_camarilla(yesterday_candle):
+    h_l = (
+        yesterday_candle["high"] - yesterday_candle["low"]) * 1.1
+    r4 = (h_l / 2) + yesterday_candle["close"]
+    r3 = (h_l / 4) + yesterday_candle["close"]
+    r2 = (h_l / 6) + yesterday_candle["close"]
+    r1 = (h_l / 12) + yesterday_candle["close"]
+    s1 = yesterday_candle["close"] - (h_l / 12)
+    s2 = yesterday_candle["close"] - (h_l / 6)
+    s3 = yesterday_candle["close"] - (h_l / 4)
+    s4 = yesterday_candle["close"] - (h_l / 2)
+    return ({
+        "resistance1": r1,
+        "resistance2": r2,
+        "resistance3": r3,
+        "resistance4": r4,
+        "support1": s1,
+        "support2": s2,
+        "support3": s3,
+        "support4": s4
+    })
+
 
 def refill_bnb(state, data, amount):
     position_manager = PositionManager(
@@ -1920,3 +2010,28 @@ def refill_bnb(state, data, amount):
             "Buying BNB, current amount %f" % amount_bnb)
         state.balance_quoted -= position_manager.position_value
         position_manager.open_market(add=True)
+
+
+def indicator_is_rising(close_prices, touching_band, indicator_values):
+    last_touch = None
+    values_at_touch = []
+    is_rising = None
+    i = -1
+    try:
+        while i > -len(close_prices):
+            if close_prices[i] > touching_band[i]:
+                values_at_touch.append(indicator_values[i])
+                if last_touch is None:
+                    last_touch = i
+                else:
+                    break
+            i -= 1
+    except IndexError:
+        pass
+    if len(values_at_touch) >1:
+        if values_at_touch[0] > values_at_touch[1]:
+            is_rising = True
+        else:
+            is_rising = False
+    return(is_rising, last_touch)
+
