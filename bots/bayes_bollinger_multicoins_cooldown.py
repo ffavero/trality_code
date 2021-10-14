@@ -15,6 +15,10 @@ SYMBOLS2 = ["MANAUSDT", "IRISUSDT", "GTOUSDT", "BNBUSDT"]
 # Classify regions to predict possibly losses
 # Fix stop loss updating to a lower value (test if fix is necessary)
 
+AUTHOR = "Francesco @79bass 2021-10-14"
+DONATE = ("TIP JAR WALLET:  " +
+          "BEP-20: 0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c"
+          "ERC20:  0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c")
 
 # Testing pairs 15-05/25-08 to evaluate signal 4
 # with signal 4
