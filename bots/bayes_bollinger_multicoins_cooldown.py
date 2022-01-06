@@ -2,7 +2,7 @@
 ##| BAYESIAN BBANDS | 15m                                             |
 ##+------------------------------------------------------------------+
 
-SYMBOLS_1 = "MATICUSDT"
+SYMBOLS_1 = "BTCUSDT"
 SYMBOLS1 = ["VITEUSDT", "MATICUSDT", "RUNEUSDT", "ZILUSDT", "1INCHUSDT"]
 SYMBOLS3 = ["LUNAUSDT", "COCOSUSDT", "NKNUSDT", "NEOUSDT", "NANOUSDT"]
 #SYMBOLS2 = ["MIRUSDT", "ZRXUSDT", "MANAUSDT", "CLVUSDT", "ALGOUSDT", "BNBUSDT"]
@@ -235,6 +235,25 @@ def signal_no_wait(position_manager, trade_data, indicators_data):
     position_manager.stop_waiting()
     return True
 
+def signal_3_cci_sell(position_manager, trade_data, indicators_data):  
+    signal = False
+    cci_hl = indicators_data["cci_hl"]
+    cci = indicators_data["cci"]["data"][-1]
+    if cci < cci_hl["peaks"][-1]:
+        signal = True
+        position_manager.stop_waiting()
+    return signal    
+
+
+def signal_3_cci_buy(position_manager, trade_data, indicators_data):  
+    signal = False
+    cci_hl = indicators_data["cci_hl"]
+    cci = indicators_data["cci"]["data"][-1]
+    if cci > cci_hl["valleys"][-1]:
+        signal = True
+        position_manager.stop_waiting()
+    return signal   
+
 
 def signal_buy_cooldown(position_manager, trade_data, indicators_data):
     signal = False
@@ -248,7 +267,7 @@ def signal_sell_cci(position_manager, trade_data, indicators_data):
     signal = False
     adx = indicators_data["adx"]["data"]
     cci = indicators_data["cci"]["data"]
-    if (adx[-1] < 25 or cci[-1] < 100) or cci[-1] > 250:
+    if (adx[-1] < 25 or cci[-1] < 80) or cci[-1] > 250:
         signal = True
         position_manager.stop_waiting()
     return signal
@@ -419,10 +438,10 @@ def handler_main(state, data, amount):
     h_hlc_array = np.asarray((
         h_high, h_low, h_close), dtype=np.float32)
     h_close_array = np.asarray(h_close, dtype=np.float32)
-    if len(h_close) >  26:
-        macd_1h = macd(h_close_array, 12, 26, 9)
-    else:
-        macd_1h = [[None], [None], [None]]
+    # if len(h_close) >  26:
+    #     macd_1h = macd(h_close_array, 12, 26, 9)
+    # else:
+    #     macd_1h = [[None], [None], [None]]
     mfi_1h_period = 48
     mfi_1h_long_period = 72
     # if len(h_close) > mfi_1h_long_period:
@@ -486,10 +505,10 @@ def handler_main(state, data, amount):
 
 
 
-    # last_ccis_peaks = detect_peaks(
-    #     last_ccis, mpd=8, edge=None, kpsh=True)
-    # last_ccis_valleys = detect_peaks(
-    #     last_ccis, mpd=8, edge=None, valley=True, kpsh=True)  
+    last_ccis_peaks = detect_peaks(
+        last_ccis, mpd=8, edge=None, kpsh=True)
+    last_ccis_valleys = detect_peaks(
+        last_ccis, mpd=8, edge=None, valley=True, kpsh=True)  
 
     # last_adxs_peaks = detect_peaks(
     #     last_adxs, mpd=8, edge=None, kpsh=True)
@@ -504,11 +523,11 @@ def handler_main(state, data, amount):
     # last_adxs_peaks = find_local_max(last_adxs)
 
     # last_close_valleys_values = last_closes[last_valleys]
-    # last_cci_valleys_values = last_ccis[last_ccis_valleys]
+    last_cci_valleys_values = last_ccis[last_ccis_valleys]
     # last_adx_valleys_values = last_adxs[last_adxs_valleys]
 
     # last_close_peaks_values = last_closes[last_peaks]
-    # last_cci_peaks_values = last_ccis[last_ccis_peaks]
+    last_cci_peaks_values = last_ccis[last_ccis_peaks]
     # last_adx_peaks_values = last_adxs[last_adxs_peaks]
 
 
@@ -548,6 +567,12 @@ def handler_main(state, data, amount):
         },
         "cci": {
             "data": last_ccis.tolist()[-5:]
+        },
+        "cci_hl": {
+            "valleys": last_cci_valleys_values,
+            "peaks": last_cci_peaks_values,
+            "valleys_index": last_ccis_valleys,
+            "peaks_index": last_ccis_peaks
         },
         "close": {
             "data": last_closes.tolist()[-5:]
@@ -984,12 +1009,12 @@ def handler_main(state, data, amount):
             plot("mfi_1h_long", mfi_1h_long[-1])
 
 
-    with PlotScope.group("hourly_macd", symbol):
-        if len(macd_1h) == 3:
-            if macd_1h[0][-1]:
-                plot("macd", macd_1h[0][-1])
-                plot("macd_signal", macd_1h[1][-1])
-                plot("macd_hist", macd_1h[2][-1])
+    # with PlotScope.group("hourly_macd", symbol):
+    #     if len(macd_1h) == 3:
+    #         if macd_1h[0][-1]:
+    #             plot("macd", macd_1h[0][-1])
+    #             plot("macd_signal", macd_1h[1][-1])
+    #             plot("macd_hist", macd_1h[2][-1])
 
     with PlotScope.group("pnl", symbol):
         plot("pnl", float(state.positions_manager[
@@ -2038,4 +2063,5 @@ def indicator_is_rising(close_prices, touching_band, indicator_values):
         else:
             is_rising = False
     return(is_rising, last_touch)
+
 
