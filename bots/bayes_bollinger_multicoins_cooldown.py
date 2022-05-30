@@ -2,11 +2,14 @@
 ##| BAYESIAN BBANDS | 15m                                             |
 ##+------------------------------------------------------------------+
 
-SYMBOLS_1 = "BTCUSDT"
+SYMBOLS_1 = "ZRXUSDT"
 SYMBOLS1 = ["VITEUSDT", "MATICUSDT", "RUNEUSDT", "ZILUSDT", "1INCHUSDT"]
-SYMBOLS3 = ["LUNAUSDT", "COCOSUSDT", "NKNUSDT", "NEOUSDT", "NANOUSDT"]
+SYMBOLS2 = ["MANAUSDT", "IRISUSDT", "GTOUSDT"]
+SYMBOLS3 = ["LUNAUSDT", "NKNUSDT", "NEOUSDT"]
 #SYMBOLS2 = ["MIRUSDT", "ZRXUSDT", "MANAUSDT", "CLVUSDT", "ALGOUSDT", "BNBUSDT"]
-SYMBOLS2 = ["MANAUSDT", "IRISUSDT", "GTOUSDT", "BNBUSDT"]
+SYMBOLS1 = ["MATICUSDT", "ZRXUSDT"]
+SYMBOLS2 = ["1INCHUSDT", "ZILUSDT", "XNOUSDT"]
+SYMBOLS3 = ["MANAUSDT"]
 
 
 
@@ -17,8 +20,8 @@ SYMBOLS2 = ["MANAUSDT", "IRISUSDT", "GTOUSDT", "BNBUSDT"]
 
 AUTHOR = "Francesco @79bass 2021-10-14"
 DONATE = ("TIP JAR WALLET:  " +
-          "BEP-20: 0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c"
-          "ERC20:  0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c")
+          "BEP-20: 0xEAC8a0d3AB6761860395b33f74dea88B4F16aBcA"
+          "ERC20:  0xEAC8a0d3AB6761860395b33f74dea88B4F16aBcA")
 
 # Testing pairs 15-05/25-08 to evaluate signal 4
 # with signal 4
@@ -60,10 +63,10 @@ DONATE = ("TIP JAR WALLET:  " +
 
 INTERVAL = "15m"
 
-N_SYMBOLS = 13                  # Define how many symbols we are trading
+N_SYMBOLS = 6                   # Define how many symbols we are trading
                                 # in all handlers combined
 
-LEVERAGE =  2                   # Multiply the amount for a given number
+LEVERAGE =  1                   # Multiply the amount for a given number
                                 # eg balance is 1000 usdt, N_SYMBOLS is 10
                                 # LEVERAGE is 2; instead of 100 usdt per trade
                                 # the bot will use 200 usdt (if enough balance
@@ -121,6 +124,7 @@ def initialize(state):
         "ema_filter": True,
         "keep_signal": 10,
         "use_cooldown": True,
+        "use_pivot": True,
         "max_candels_with_0_signals": 24,
         "signals_mode": SIGNALS,
         "collect_data": COLLECT_DATA}
@@ -312,6 +316,7 @@ def handler_main(state, data, amount):
     ema_filter = params["ema_filter"]
     keep_signal = params["keep_signal"]
     use_cooldown = params["use_cooldown"]
+    use_pivot = params["use_pivot"]
     lift_sl = True
 
     try:
@@ -471,6 +476,9 @@ def handler_main(state, data, amount):
     bbands_below_keltner_low = bbands.select(
         'bbands_lower')[-1] < kbands['low'][-1] 
 
+    # p_lows, cci_lows = bbands_levels(
+    #     last_ccis, last_lows, last_closes, bbands.select(
+    #         'bbands_lower')[-take_last:])
 
     if past_r1 and past_r1 < r1 and current_price > kbands["high"][-1] and bbands_above_keltner_up:
         state.cooldown[symbol] = True
@@ -669,6 +677,15 @@ def handler_main(state, data, amount):
                 # position_manager.update_double_barrier_price(
                 #     current_price,
                 #     stop_loss_price=mid_low_point)
+        # if (
+        #     last_closes[-1] >  bbands.select("bbands_lower")[-1]
+        #     and last_closes[-2] >  bbands.select("bbands_lower")[-2]
+        # ):
+        #     new_stop = min(last_lows[-5:])
+        #     position_manager.update_double_barrier(
+        #         current_price,
+        #         stop_loss=price_to_percent(
+        #             current_price, new_stop))
 
     #--------------------------------------------#
     # Feedback on PnL and data collection prints #
@@ -791,11 +808,15 @@ def handler_main(state, data, amount):
         if buy_signal_wait and ema_long > ema_short:
             buy_signal_wait = False
 
+    # if len(cci_lows) > 1:
+    #     if cci_lows[-1] < cci_lows[-2] and p_lows[-1] < p_lows[-2]:
+    #         buy_signal_wait = False
+
     # """
     # Filter signals in a bearish-ranging region
-    # """ 
-    # if current_price < pivot and current_price > s1:
-    #     buy_signal_wait = False
+    # """
+    if use_pivot and current_price < pivot and current_price > s1:
+        buy_signal_wait = False
 
     """
     Filter buy orders when long mfi gives too much
@@ -1020,6 +1041,10 @@ def handler_main(state, data, amount):
         plot("pnl", float(state.positions_manager[
             symbol]["summary"]['pnl']))
 
+    # with PlotScope.group("cci_div", symbol):
+    #     if len(cci_lows) > 1:
+    #         plot("cci_inc", cci_lows[-1] > cci_lows[-2] )
+    #         plot("price_inc", p_lows[-1] > p_lows[-2] )
 
     with PlotScope.group("signal", symbol):
         plot("0", int(a["0"]) + (-1 * int(b["0"])))
@@ -2065,3 +2090,35 @@ def indicator_is_rising(close_prices, touching_band, indicator_values):
     return(is_rising, last_touch)
 
 
+def bbands_levels(indicator, price, close, bband, crossover=True):
+    """
+    Return the price and the indicator value when a bandcrossing
+    was observed
+
+    :param indicator: the 1d np.array of the indicator
+    :type indicator: np.array
+    :param price: the 1d np.array of prices
+    :type price: np.array
+    :param close: the 1d np.array of close prices
+    :type close: np.array
+    :param bband: the 1d np.array of the band to test
+    :type bband: np.array
+    :param crossover: Test cross over, if false test cross under
+    :type crossover: bool
+    """
+    if crossover:
+        idx = np.where(np.diff(np.less(close, bband)) == 1)[0] + 1
+    else:
+        idx = np.where(np.diff(np.greater(close, bband)) == 1)[0] + 1
+    
+    idx_idx = np.where(np.diff(idx) > 1)[0] + 1
+    idx_groups = np.split(idx, idx_idx)
+    # v_min = np.vectorize(min_value, excluded=[0])
+    # v_max = np.vectorize(max_value, excluded=[0])
+    if crossover:
+        price_val = [np.min(price[g]) for g in idx_groups if len(g) > 0]
+        iind_val = [np.min(indicator[g]) for g in idx_groups if len(g) > 0]
+    else:
+        price_val = [np.max(price[g]) for g in idx_groups]
+        iind_val = [np.max(indicator[g]) for g in idx_groups]
+    return (price_val, iind_val)o
