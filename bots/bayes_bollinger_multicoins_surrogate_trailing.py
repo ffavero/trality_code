@@ -6,7 +6,7 @@ VERSION = "27.1"
 ALIAS = "DiamondHands"
 AUTHOR = "Francesco @79bass 2021-05-21"
 DONATE = ("TIP JAR WALLET:  \n" +
-           "ERC20:  0xc7F0A80f8a16F50067ABcd511f72a6D4eeAFC59c")
+           "ERC20:  0xEAC8a0d3AB6761860395b33f74dea88B4F16aBcA")
 
 
 INTERVAL = "15m"
